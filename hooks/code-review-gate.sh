@@ -45,7 +45,6 @@ find /tmp -maxdepth 1 -name 'claude-code-review-*.done' -mtime +1 -delete 2>/dev
 # Escape hatch: if we already blocked once this session, allow exit.
 # Prevents holding the user hostage when they want to abandon work without reviewing.
 if [ -f "$BLOCKED_SENTINEL" ]; then
-    echo '{"decision":"allow"}'
     exit 0
 fi
 
@@ -57,13 +56,11 @@ fi
 
 # No code changes this session — nothing to review
 if [ -z "$CHANGES" ]; then
-    echo '{"decision":"allow"}'
     exit 0
 fi
 
 # Authoritative completion check: did the skill actually run and finish?
 if [ -f "$DONE_SENTINEL" ]; then
-    echo '{"decision":"allow"}'
     exit 0
 fi
 
@@ -71,7 +68,6 @@ fi
 # file (e.g. SESSION_ID was unavailable in its environment), still honor the legacy
 # marker — but only when present in the transcript file, not just any text.
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] && grep -q "AGENTIC-REVIEW-COMPLETE" "$TRANSCRIPT" 2>/dev/null; then
-    echo '{"decision":"allow"}'
     exit 0
 fi
 
