@@ -162,4 +162,4 @@ For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 
 
 ## License
 
-MIT — see LICENSE (not yet added).
+MIT — see [LICENSE](LICENSE).
