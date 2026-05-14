@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~
+
+# Claude Code local project state (NOT the plugin manifest dir `.claude-plugin/`)
+.claude/
