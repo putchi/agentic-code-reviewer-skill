@@ -1,0 +1,18 @@
+{
+  "name": "agentic-code-reviewer-skill",
+  "description": "Single-plugin marketplace hosting the agentic-code-reviewer plugin",
+  "owner": {
+    "name": "putchi",
+    "url": "https://github.com/putchi"
+  },
+  "plugins": [
+    {
+      "name": "agentic-code-reviewer",
+      "description": "Meticulous agentic code reviewer: 5 specialized sub-agents (logic, security, architecture, tests, best practices) plus a Chairman/Judge pass that dedupes, re-rates by evidence, and writes a verdict",
+      "source": ".",
+      "version": "1.0.0",
+      "category": "code-review",
+      "tags": ["code-review", "agents", "git-diff", "multi-platform"]
+    }
+  ]
+}

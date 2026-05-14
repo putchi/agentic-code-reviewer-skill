@@ -42,13 +42,16 @@ Full tool-name mapping is in [`references/platform-tools.md`](references/platfor
 
 ### Claude Code (primary)
 
-**Option A — install from the published repo:**
+**Option A — install from the published repo (recommended):**
+
+The repo is a self-hosting marketplace, so register it first, then install the plugin from it:
 
 ```
-/plugin install putchi/agentic-code-reviewer-skill
+/plugin marketplace add putchi/agentic-code-reviewer-skill
+/plugin install agentic-code-reviewer@agentic-code-reviewer-skill
 ```
 
-**Option B — local clone** (use this while the repo is still pre-publish, or for local development):
+**Option B — local clone** (for local development):
 
 ```
 git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git ~/.claude/plugins/agentic-code-reviewer
