@@ -1,5 +1,5 @@
 {
-  "description": "Agentic code reviewer - gates session exit until code review is complete",
+  "description": "Agentic code reviewer - gates session exit until code review is complete; notifies on update",
   "hooks": {
     "Stop": [
       {
@@ -8,6 +8,17 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/code-review-gate.sh",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-update.sh",
+            "timeout": 8
           }
         ]
       }
