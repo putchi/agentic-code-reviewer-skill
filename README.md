@@ -42,7 +42,19 @@ Full tool-name mapping is in [`references/platform-tools.md`](references/platfor
 
 ### Claude Code (primary)
 
-**Option A — install from the published repo (recommended):**
+**Option A — one-line install (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash
+```
+
+Or with an explicit platform flag to skip the prompt:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform claude
+```
+
+**Option B — install from the published repo:**
 
 The repo is a self-hosting marketplace, so register it first, then install the plugin from it:
 
@@ -51,10 +63,12 @@ The repo is a self-hosting marketplace, so register it first, then install the p
 /plugin install agentic-code-reviewer@agentic-code-reviewer-skill
 ```
 
-**Option B — local clone** (for local development):
+**Option C — local clone** (for local development):
 
 ```
-git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git ~/.claude/plugins/agentic-code-reviewer
+git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
+cd agentic-code-reviewer-skill
+./install.sh --platform claude
 ```
 
 Verify with `/plugin` and confirm `agentic-code-reviewer` is listed.
@@ -63,24 +77,38 @@ Required tools: `git`, `python3` (used by the Stop hook to parse hook JSON), `ba
 
 ### Codex (CLI + App)
 
-1. Enable multi-agent support — add this to `~/.codex/config.toml`:
+**Option A — one-line install (recommended):**
 
-   ```toml
-   [features]
-   multi_agent = true
-   ```
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform codex
+```
 
-   Without this, parallel subagent dispatch will fail.
+Or install for both Claude Code and Codex at once:
 
-2. Manual install (until the plugin is published to the Codex marketplace): clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, and `references/` into your Codex skills directory.
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both
+```
 
-   ```
-   git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
-   ```
+**Option B — from a local clone:**
+
+```bash
+git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
+cd agentic-code-reviewer-skill
+./install.sh --platform codex
+```
+
+After installing, enable multi-agent support — add this to `~/.codex/config.toml`:
+
+```toml
+[features]
+multi_agent = true
+```
+
+Without this, parallel subagent dispatch will fail.
 
 ### Copilot CLI
 
-Manual install (until the plugin is published to the Copilot marketplace): clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, and `references/` into your Copilot CLI skills directory.
+Manual install: clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, and `references/` into your Copilot CLI skills directory.
 
 ```
 git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
