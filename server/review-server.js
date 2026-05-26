@@ -360,7 +360,13 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 .diff-view.pinpoint-mode tr:hover td { outline: 2px dashed var(--accent); cursor: crosshair; }
 .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); font-size: 14px; }
 .right-panel { width: 300px; min-width: 240px; background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
-.right-section { padding: 10px 12px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.right-panel.hidden { display: none; }
+.right-section { padding: 0 12px; height: 36px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.right-panel-close { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; cursor: pointer; color: var(--text-dim); background: none; border: none; padding: 0; flex-shrink: 0; }
+.right-panel-close:hover { background: var(--surface); color: var(--text); }
+.btn-show-panel { display: none; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; color: var(--text-dim); background: none; border: 1px solid var(--border); padding: 0; font-size: 11px; }
+.btn-show-panel:hover { background: var(--surface); color: var(--text); }
+.btn-show-panel.visible { display: flex; }
 .comments-scroll { overflow-y: auto; padding: 8px; }
 .comment-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; margin-bottom: 8px; }
 .comment-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -615,6 +621,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
           <button class="btn-sm" id="btn-next">next &#9654;</button>
         </div>
         <button class="toggle-view" id="btn-toggle-view">unified</button>
+        <button class="btn-show-panel" id="btn-show-right-panel" title="Show panel"><i class="fa fa-chevron-left"></i></button>
       </div>
       <div class="annotation-toolstrip" id="annotation-toolstrip">
         <div class="toolstrip-group">
@@ -645,8 +652,13 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
         <div class="empty-state">Select a finding or file to view diff</div>
       </div>
     </div>
-    <div class="right-panel">
-      <div class="right-section">Comments (<span id="comment-count">0</span>)</div>
+    <div class="right-panel" id="right-panel">
+      <div class="right-section">
+        <button class="right-panel-close" id="btn-hide-right-panel" title="Hide panel">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <span>Comments (<span id="comment-count">0</span>)</span>
+      </div>
       <div class="comments-scroll" id="comments-scroll"></div>
       <div class="global-comment-area">
         <div class="global-comment-label">Global Notes</div>
@@ -661,7 +673,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
         </div>
         <div class="chat-input-area">
           <textarea class="chat-textarea" id="chat-input" placeholder="Ask about this diff..." rows="2"></textarea>
-          <button class="btn btn-primary chat-send" id="btn-chat-send">Send</button>
+          <button class="btn btn-primary chat-send" id="btn-chat-send"><i class="fa fa-paper-plane"></i></button>
         </div>
       </div>
     </div>
@@ -1627,6 +1639,17 @@ document.getElementById('btn-toggle-view').addEventListener('click', function() 
   }
 });
 if (localStorage.getItem('acr-split')) { splitView = true; document.getElementById('btn-toggle-view').textContent = 'split'; }
+
+(function() {
+  var panel = document.getElementById('right-panel');
+  var btnShow = document.getElementById('btn-show-right-panel');
+  var btnHide = document.getElementById('btn-hide-right-panel');
+  function hidePanel() { panel.classList.add('hidden'); btnShow.classList.add('visible'); localStorage.setItem('acr-right-panel', 'hidden'); }
+  function showPanel() { panel.classList.remove('hidden'); btnShow.classList.remove('visible'); localStorage.setItem('acr-right-panel', 'visible'); }
+  btnHide.addEventListener('click', hidePanel);
+  btnShow.addEventListener('click', showPanel);
+  if (localStorage.getItem('acr-right-panel') === 'hidden') hidePanel();
+})();
 
 document.getElementById('btn-prev').addEventListener('click', function() {
   var findings = reviewData ? reviewData.findings || [] : [];
