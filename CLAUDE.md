@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Prerequisites
+
+Install Bun via Homebrew (required — `~/.bun/bin/bun` installed via the official script hangs on `bun install` in this repo):
+
+```bash
+brew tap oven-sh/bun
+brew install bun
+```
+
+After a fresh clone, install all workspace dependencies:
+
+```bash
+bun install
+```
+
 ## Commands
 
 All commands run from the repo root using `/opt/homebrew/bin/bun` (the system Bun; `~/.bun/bin/bun` hangs on install).
