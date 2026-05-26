@@ -15,6 +15,9 @@
 # Generated review artifacts (user's local output — not part of the plugin)
 docs/code-reviews/
 
+# Bun build artifacts
+*.bun-build
+
 # Bun workspace
 node_modules/
 packages/*/node_modules/

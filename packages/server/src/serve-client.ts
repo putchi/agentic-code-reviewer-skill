@@ -1,7 +1,25 @@
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
-const DIST_HTML = resolve(import.meta.dir, '../../client/dist/index.html');
+
+function findDistHtml(): string {
+  // In a compiled binary, import.meta.dir is /$bunfs/root (virtual); use dirname(process.execPath)
+  // In dev (bun src/index.ts), import.meta.dir is packages/server/src/
+  const execDir = dirname(process.execPath);
+  const candidates = [
+    // Production: binary is in dist/, client html is in dist/
+    resolve(execDir, 'index.html'),
+    // Dev: bun run from packages/server/src/, client is at packages/client/dist/
+    resolve(import.meta.dir, '../../client/dist/index.html'),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return candidates[1]; // fallback for error message
+}
+
+const DIST_HTML = findDistHtml();
 let cached: string | null = null;
+
 export function serveClient(): Response {
   if (!existsSync(DIST_HTML)) {
     return new Response('UI not built. Run: bun install && bun run build',
