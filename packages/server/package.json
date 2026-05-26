@@ -1,0 +1,9 @@
+{
+  "name": "@acr/server",
+  "private": true,
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev":   "bun --watch src/index.ts --port 7788"
+  },
+  "dependencies": { "@acr/shared": "workspace:*" }
+}

@@ -1,0 +1,23 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "agentic-code-reviewer-skill",
+    },
+    "packages/server": {
+      "name": "@acr/server",
+      "dependencies": {
+        "@acr/shared": "workspace:*",
+      },
+    },
+    "packages/shared": {
+      "name": "@acr/shared",
+    },
+  },
+  "packages": {
+    "@acr/server": ["@acr/server@workspace:packages/server"],
+
+    "@acr/shared": ["@acr/shared@workspace:packages/shared"],
+  }
+}
