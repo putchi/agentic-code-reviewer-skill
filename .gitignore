@@ -17,6 +17,7 @@ docs/code-reviews/
 
 # Bun build artifacts
 *.bun-build
+.*.bun-build
 
 # Bun workspace
 node_modules/
