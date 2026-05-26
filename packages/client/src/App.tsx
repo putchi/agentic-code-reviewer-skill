@@ -1,15 +1,100 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Finding } from '@acr/shared';
 import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
+import { useAnnotations } from './hooks/useAnnotations';
+import Header from './components/Header';
+import FilterBar from './components/FilterBar';
+import LeftPanel from './components/LeftPanel/index';
+import DiffViewer from './components/DiffViewer/index';
+import RightPanel from './components/RightPanel/index';
+import ActionBar from './components/ActionBar';
+import HelpModal from './components/modals/HelpModal';
+import SettingsPopover from './components/modals/SettingsPopover';
+import UpdateToast from './components/modals/UpdateToast';
 
 export default function App() {
   const { data, isLoading, error } = useReviewData();
+  const { annotations } = useAnnotations();
   const [activeFilter, setActiveFilter] = useState<'ALL'|'CRITICAL'|'HIGH'|'NOTE'>('ALL');
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useLocalStorage('acr-right-panel', true);
   const [splitView, setSplitView] = useLocalStorage('acr-split-view', false);
+  const [comments, setComments] = useLocalStorage<Record<string, string>>('acr-comments', {});
+  const [checkedIds, setCheckedIds] = useLocalStorage<string[]>('acr-checked-ids', []);
+  const [model, setModel] = useLocalStorage('acr-chat-model', 'claude-sonnet-4-6');
+  const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState('');
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  const checkedSet = new Set(checkedIds);
+
+  useEffect(() => {
+    if (!data) return;
+    // Pre-check CRITICAL findings on first load
+    const key = 'acr-checked-initted';
+    if (!localStorage.getItem(key)) {
+      const critIds = data.findings.filter(f => f.severity === 'CRITICAL').map(f => f.id);
+      if (critIds.length) setCheckedIds(critIds);
+      localStorage.setItem(key, '1');
+    }
+  }, [data]);
+
+  const findings = data?.findings ?? [];
+  const files = data?.files ?? [];
+  const counts = { CRITICAL: 0, HIGH: 0, NOTE: 0 };
+  for (const f of findings) { if (f.severity in counts) counts[f.severity as keyof typeof counts]++; }
+  const filtered = findings.filter(f => activeFilter === 'ALL' || f.severity === activeFilter);
+
+  // Keyboard shortcuts (Task 23)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement;
+      if (['TEXTAREA', 'INPUT', 'SELECT'].includes(t.tagName) || t.isContentEditable) return;
+      if (e.key === 'Escape') { setShowHelp(false); setShowSettings(false); return; }
+      if (e.key === 'j' || e.key === 'k') {
+        const idx = filtered.findIndex(f => f.id === selectedFinding?.id);
+        const next = e.key === 'j' ? idx + 1 : idx - 1;
+        if (next >= 0 && next < filtered.length) {
+          setSelectedFinding(filtered[next]);
+          setSelectedFile(filtered[next].file);
+        }
+        return;
+      }
+      if (e.key === ' ' && selectedFinding) {
+        e.preventDefault();
+        toggleCheck(selectedFinding.id);
+        return;
+      }
+      if (e.key === 'Enter' && selectedFinding) {
+        setSelectedFile(selectedFinding.file);
+        return;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [filtered, selectedFinding]);
+
+  function toggleCheck(id: string) {
+    setCheckedIds(prev => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return Array.from(s);
+    });
+  }
+  function selectAll() { setCheckedIds(findings.map(f => f.id)); }
+  function deselectAll() { setCheckedIds([]); }
+
+  function handleCommentChange(key: string, text: string) {
+    setComments(prev => ({ ...prev, [key]: text }));
+  }
+  function handleGlobalChange(text: string) {
+    setComments(prev => ({ ...prev, _global: text }));
+  }
+
+  const diffText = data?.files.find(f => f.path === selectedFile)?.diff ?? '';
 
   if (isLoading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-dim)' }}>
@@ -22,112 +107,55 @@ export default function App() {
     </div>
   );
 
-  const counts = { CRITICAL: 0, HIGH: 0, NOTE: 0 };
-  for (const f of data?.findings ?? []) {
-    if (f.severity in counts) counts[f.severity as keyof typeof counts]++;
-  }
-
-  const filtered = (data?.findings ?? []).filter(
-    f => activeFilter === 'ALL' || f.severity === activeFilter
-  );
-
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100vh', overflow:'hidden' }}>
-      {/* Header */}
-      <div className="header-placeholder" style={{ padding:'8px 12px', background:'var(--bg2)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:'12px' }}>
-        <span style={{ fontWeight:600, fontSize:'14px' }}>Agentic Code Review</span>
-        {data && <span style={{ color:'var(--text-muted)', fontSize:'12px' }}>{data.branch} · {data.timestamp?.slice(0,10)}</span>}
-        {data?.verdict && <span style={{ marginLeft:'auto', color:'var(--text)', fontSize:'12px' }}>{data.verdict}</span>}
-      </div>
-
-      {/* Filter bar */}
-      <div style={{ padding:'6px 12px', background:'var(--bg2)', borderBottom:'1px solid var(--border)', display:'flex', gap:'8px' }}>
-        {(['ALL','CRITICAL','HIGH','NOTE'] as const).map(f => (
-          <button key={f} onClick={() => setActiveFilter(f)}
-            style={{ padding:'3px 10px', borderRadius:'var(--radius)', border:'1px solid var(--border)',
-              background: activeFilter === f ? 'var(--surface2)' : 'var(--surface)',
-              color: f === 'CRITICAL' ? 'var(--critical)' : f === 'HIGH' ? 'var(--high)' : f === 'NOTE' ? 'var(--note)' : 'var(--text)',
-              cursor:'pointer', fontSize:'12px' }}>
-            {f === 'ALL' ? 'All' : `${f}: ${counts[f as keyof typeof counts]}`}
-          </button>
-        ))}
-      </div>
-
-      {/* Panels */}
-      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
-        {/* Left panel */}
-        <div style={{ width:'280px', flexShrink:0, background:'var(--bg2)', borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-          <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', fontSize:'12px', color:'var(--text-muted)' }}>
-            {filtered.length} finding{filtered.length !== 1 ? 's' : ''}
-          </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'4px' }}>
-            {filtered.map(f => (
-              <div key={f.id} onClick={() => { setSelectedFinding(f); setSelectedFile(f.file); }}
-                style={{ padding:'8px', marginBottom:'2px', borderRadius:'var(--radius)', cursor:'pointer',
-                  background: selectedFinding?.id === f.id ? 'var(--surface2)' : 'transparent',
-                  borderLeft:`3px solid ${f.severity==='CRITICAL' ? 'var(--critical)' : f.severity==='HIGH' ? 'var(--high)' : 'var(--note)'}` }}>
-                <div style={{ fontSize:'11px', color: f.severity==='CRITICAL' ? 'var(--critical)' : f.severity==='HIGH' ? 'var(--high)' : 'var(--note)', marginBottom:'2px' }}>
-                  [{f.severity}]
-                </div>
-                <div style={{ fontSize:'12px', color:'var(--text)' }}>{f.finding}</div>
-                <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px' }}>{f.location}</div>
-              </div>
-            ))}
-          </div>
+    <div className="app">
+      <Header data={data}
+        onSettings={() => setShowSettings(true)}
+        onHelp={() => setShowHelp(true)} />
+      <FilterBar activeFilter={activeFilter} counts={counts} onChange={setActiveFilter} />
+      <div className="panels">
+        <LeftPanel
+          findings={filtered} files={files}
+          selectedFindingId={selectedFinding?.id ?? null}
+          selectedFile={selectedFile}
+          checkedIds={checkedSet}
+          onSelectFinding={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
+          onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
+          onToggleCheck={toggleCheck} />
+        <div className="center-panel">
+          <DiffViewer
+            file={selectedFile} diffText={diffText}
+            findings={findings} splitView={splitView as boolean}
+            onToggleSplit={() => setSplitView(v => !v)}
+            rightPanelOpen={rightPanelOpen as boolean}
+            onShowRightPanel={() => setRightPanelOpen(true)}
+            onHelpModal={() => setShowHelp(true)}
+            onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }} />
         </div>
-
-        {/* Center panel */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'var(--bg)' }}>
-          <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:'8px' }}>
-            <span style={{ color:'var(--text-muted)', fontSize:'12px' }}>
-              {selectedFile ?? 'No file selected'}
-            </span>
-            <button onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              style={{ marginLeft:'auto', padding:'3px 8px', borderRadius:'var(--radius)', border:'1px solid var(--border)',
-                background:'var(--surface)', color:'var(--text)', cursor:'pointer', fontSize:'12px' }}>
-              {rightPanelOpen ? '▶ Hide panel' : '◀ Show panel'}
-            </button>
-          </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'12px', fontFamily:'monospace', fontSize:'12px' }}>
-            {selectedFile
-              ? <pre style={{ color:'var(--text)' }}>{data?.files.find(f => f.path === selectedFile)?.diff ?? '(no diff)'}</pre>
-              : <div style={{ color:'var(--text-dim)', padding:'24px' }}>Select a finding or file to view diff</div>
-            }
-          </div>
-        </div>
-
-        {/* Right panel */}
         {rightPanelOpen && (
-          <div style={{ width:'300px', flexShrink:0, background:'var(--bg2)', borderLeft:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-            <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center' }}>
-              <span style={{ fontSize:'13px', fontWeight:500 }}>Comments</span>
-              <button onClick={() => setRightPanelOpen(false)}
-                style={{ marginLeft:'auto', background:'none', border:'none', color:'var(--text-dim)', cursor:'pointer', fontSize:'14px' }}>✕</button>
-            </div>
-            <div style={{ flex:1, overflowY:'auto', padding:'8px' }}>
-              <div style={{ color:'var(--text-dim)', fontSize:'12px', padding:'8px' }}>
-                No comments yet. Select findings and add notes.
-              </div>
-            </div>
-          </div>
+          <RightPanel
+            findings={findings} checkedIds={checkedSet}
+            comments={comments} globalComment={comments['_global'] || ''}
+            model={model as string} currentFile={selectedFile ?? undefined}
+            chatPrefill={chatPrefill}
+            onChatPrefillConsumed={() => setChatPrefill('')}
+            onCommentChange={handleCommentChange}
+            onGlobalChange={handleGlobalChange}
+            onClose={() => setRightPanelOpen(false)} />
         )}
       </div>
-
-      {/* Action bar */}
-      <div style={{ padding:'8px 12px', background:'var(--bg2)', borderTop:'1px solid var(--border)', display:'flex', gap:'8px', alignItems:'center' }}>
-        <button style={{ padding:'6px 16px', borderRadius:'var(--radius)', border:'none',
-          background:'var(--accent)', color:'var(--bg3)', cursor:'pointer', fontSize:'13px', fontWeight:500 }}>
-          Implement
-        </button>
-        <button style={{ padding:'6px 16px', borderRadius:'var(--radius)', border:'1px solid var(--border)',
-          background:'var(--surface)', color:'var(--text)', cursor:'pointer', fontSize:'13px' }}>
-          Save
-        </button>
-        <button style={{ padding:'6px 16px', borderRadius:'var(--radius)', border:'1px solid var(--border)',
-          background:'var(--surface)', color:'var(--text)', cursor:'pointer', fontSize:'13px' }}>
-          Done
-        </button>
-      </div>
+      <ActionBar
+        findings={findings} checkedIds={checkedSet}
+        comments={comments} globalComment={comments['_global'] || ''}
+        lineAnnotations={annotations}
+        onSelectAll={selectAll} onDeselectAll={deselectAll} />
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showSettings && (
+        <SettingsPopover model={model as string} anchorRef={settingsBtnRef}
+          onModel={m => setModel(m)}
+          onClose={() => setShowSettings(false)} />
+      )}
+      <UpdateToast />
     </div>
   );
 }

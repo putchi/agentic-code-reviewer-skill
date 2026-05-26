@@ -1,0 +1,162 @@
+import { useState, useRef, useCallback } from 'react';
+import type { Finding } from '@acr/shared';
+import type { LineAnnotation } from '@acr/shared';
+import { parseDiff } from '../../lib/diff';
+import { annotKey } from '../../lib/annotKey';
+import { useAnnotations, type AnnotMode, type Selection } from '../../hooks/useAnnotations';
+import DiffTable from './DiffTable';
+import AnnotationToolstrip from './AnnotationToolstrip';
+import MiniToolbar from './MiniToolbar';
+import CommentPopover from './CommentPopover';
+import QuickLabelPicker from './QuickLabelPicker';
+
+interface Props {
+  file: string | null;
+  diffText: string;
+  findings: Finding[];
+  splitView: boolean;
+  onToggleSplit: () => void;
+  rightPanelOpen: boolean;
+  onShowRightPanel: () => void;
+  onHelpModal: () => void;
+  onAskAI: (prompt: string) => void;
+}
+
+export default function DiffViewer({
+  file, diffText, findings, splitView, onToggleSplit,
+  rightPanelOpen, onShowRightPanel, onHelpModal, onAskAI,
+}: Props) {
+  const { annotations, addAnnotation, removeAnnotation } = useAnnotations();
+  const [mode, setMode] = useState<AnnotMode>('markup');
+  const [pinpoint, setPinpoint] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [showMini, setShowMini] = useState(false);
+  const [showComment, setShowComment] = useState(false);
+  const [showLabel, setShowLabel] = useState(false);
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+
+  const rows = file ? parseDiff(diffText) : [];
+
+  function clearSelection() {
+    setSelection(null);
+    setAnchorRect(null);
+    setShowMini(false);
+    setShowComment(false);
+    setShowLabel(false);
+    setSelectedLines(new Set());
+  }
+
+  function handleMouseUp(e: React.MouseEvent<HTMLTableRowElement>, row: { newLine?: number; oldLine?: number; type: string }) {
+    if (pinpoint) {
+      // pinpoint mode: click selects single line
+      const lineNum = row.newLine ?? row.oldLine;
+      if (!lineNum || !file) return;
+      const side = row.type === 'del' ? 'old' : 'new';
+      const sel: Selection = { file, lineStart: lineNum, lineEnd: lineNum, side: side as 'new'|'old', linesText: '' };
+      setSelection(sel);
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setAnchorRect(rect);
+      if (mode === 'markup') setShowMini(true);
+      else if (mode === 'comment') setShowComment(true);
+      else if (mode === 'redline') { addAnnotation(sel, 'REDLINE', '~~redline~~'); clearSelection(); }
+      else if (mode === 'quickLabel') setShowLabel(true);
+      return;
+    }
+
+    if (mode !== 'markup' && mode !== 'comment' && mode !== 'quickLabel') return;
+    const winSel = window.getSelection();
+    if (!winSel || winSel.isCollapsed) return;
+    const selectedText = winSel.toString().trim();
+    if (!selectedText || !file) return;
+
+    const anchorTr = (e.currentTarget as HTMLElement);
+    const lineA = parseInt(anchorTr.dataset.lineRight || anchorTr.dataset.lineLeft || '0');
+    const focusTr = winSel.focusNode?.parentElement?.closest('tr') as HTMLElement | null;
+    const lineB = focusTr ? parseInt(focusTr.dataset.lineRight || focusTr.dataset.lineLeft || '0') : lineA;
+    const lineStart = Math.min(lineA || lineB, lineB || lineA);
+    const lineEnd = Math.max(lineA || lineB, lineB || lineA);
+    const side = (anchorTr.dataset.side || 'new') as 'new'|'old';
+
+    const newSelected = new Set<string>();
+    newSelected.add(annotKey(file, lineStart, lineEnd, side));
+    setSelectedLines(newSelected);
+
+    const sel: Selection = { file, lineStart, lineEnd, side, linesText: selectedText };
+    setSelection(sel);
+    const rect = anchorTr.getBoundingClientRect();
+    setAnchorRect(rect);
+
+    if (mode === 'markup') setShowMini(true);
+    else if (mode === 'comment') { setShowMini(false); setShowComment(true); }
+    else if (mode === 'quickLabel') { setShowMini(false); setShowLabel(true); }
+  }
+
+  function handleAnnotClick(key: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const parts = key.split('|');
+    if (!file) return;
+    const sel: Selection = { file: parts[0], lineStart: parseInt(parts[1]), lineEnd: parseInt(parts[2]), side: parts[3] as 'new'|'old', linesText: annotations[key]?.linesText || '' };
+    setSelection(sel);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setAnchorRect(rect);
+    setShowComment(true);
+  }
+
+  function handlePrevFinding() {
+    const fileFindings = findings.filter(f => f.file === file);
+    if (!fileFindings.length) return;
+    // navigate to prev finding in this file — scroll to row
+  }
+
+  return (
+    <>
+      <div className="diff-header">
+        <span className="diff-filename">{file ?? 'No file selected'}</span>
+        <div className="diff-nav">
+          <button className="btn-sm" onClick={handlePrevFinding}>◀ prev</button>
+          <button className="btn-sm">next ▶</button>
+        </div>
+        <button className="toggle-view" onClick={onToggleSplit}>{splitView ? 'split' : 'unified'}</button>
+        {!rightPanelOpen && (
+          <button className="btn-show-panel visible" onClick={onShowRightPanel} title="Show panel">‹</button>
+        )}
+      </div>
+
+      <AnnotationToolstrip mode={mode} pinpoint={pinpoint}
+        onMode={m => { setMode(m); clearSelection(); }}
+        onPinpoint={v => { setPinpoint(v); clearSelection(); }}
+        onHelp={onHelpModal} />
+
+      <div className={`diff-view${pinpoint ? ' pinpoint-mode' : ''}`}>
+        {file ? (
+          <DiffTable rows={rows} file={file} findings={findings}
+            annotations={annotations} selectedLines={selectedLines}
+            onRowMouseUp={handleMouseUp} onAnnotClick={handleAnnotClick}
+            splitView={splitView} />
+        ) : (
+          <div className="empty-state">Select a finding or file to view diff</div>
+        )}
+      </div>
+
+      {showMini && (
+        <MiniToolbar selection={selection} anchorRect={anchorRect}
+          onComment={() => { setShowMini(false); setShowComment(true); }}
+          onAskAI={text => { onAskAI(text); setShowMini(false); clearSelection(); }}
+          onRedline={() => { if (selection) addAnnotation(selection, 'REDLINE', '~~redline~~'); clearSelection(); }}
+          onCancel={clearSelection} />
+      )}
+      {showComment && (
+        <CommentPopover selection={selection} anchorRect={anchorRect}
+          onSave={text => { if (selection && text) addAnnotation(selection, 'COMMENT', text); }}
+          onAskAI={prompt => onAskAI(prompt)}
+          onClose={clearSelection} />
+      )}
+      {showLabel && (
+        <QuickLabelPicker selection={selection} anchorRect={anchorRect}
+          onPick={label => { if (selection) addAnnotation(selection, 'LABEL', label); }}
+          onClose={clearSelection} />
+      )}
+    </>
+  );
+}
