@@ -26,7 +26,7 @@ On Claude Code there's an extra layer: a Stop hook that blocks the session from 
 3. **Synthesizer pass.** Send the diff + all 5 raw outputs to the `synthesizer` agent. It applies judge rules (evidence required, semantic dedupe, contradiction resolution, severity re-rated by blast radius, drop speculation) and emits the final report.
 4. **Print verdict.** The Synthesizer's output is the final report — Verdict / CRITICAL / HIGH / NOTES / Summary. No further aggregation.
 5. **Completion signal.** Touch `/tmp/claude-code-review-${SESSION_ID}.done` and emit `<!-- AGENTIC-REVIEW-COMPLETE -->`. On Claude Code these unblock the Stop hook; on other platforms they are harmless no-ops.
-6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch a local Node.js server (`server/review-server.js`) that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split) with an annotation toolstrip (Select/Pinpoint + Markup/Comment/Redline/Label modes), per-finding comment cards, global notes, and a chat panel for asking Claude questions about the diff. Click **Implement Selected** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Done** to close without action. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
+6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch the compiled `review-server` binary that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split) with an annotation toolstrip, per-finding comment cards, global notes, and a chat panel for asking Claude questions about the diff. Click **Implement** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Close** to finish. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
 
 ## Platform support matrix
 
@@ -75,7 +75,7 @@ cd agentic-code-reviewer-skill
 
 Verify with `/plugin` and confirm `agentic-code-reviewer` is listed.
 
-Required tools: `git`, `python3` (used by the Stop hook to parse hook JSON), `bash`, `node` (v18+, used to launch the interactive review web UI in Step 6).
+Required tools: `git`, `python3` (used by the Stop hook to parse hook JSON), `bash`. No runtime required for the review UI — the server binary is self-contained.
 
 ### Codex (CLI + App)
 
@@ -118,13 +118,13 @@ Without this, parallel subagent dispatch will fail.
 
 ### Copilot CLI
 
-The `install.sh` does not have a Copilot CLI path. Manual install: clone the repo and symlink or copy the directories your Copilot CLI skills loader expects (`skills/agentic-code-reviewer/`, `agents/`, `references/`, `server/`). Tool-name mapping is in [`references/platform-tools.md`](references/platform-tools.md).
+The `install.sh` does not have a Copilot CLI path. Manual install: clone the repo and symlink or copy the directories your Copilot CLI skills loader expects (`skills/agentic-code-reviewer/`, `agents/`, `references/`, `packages/server/`). Tool-name mapping is in [`references/platform-tools.md`](references/platform-tools.md).
 
 ```bash
 git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 ```
 
-> ⚠ Copilot CLI support is untested. The interactive review web UI requires `node` v18+ on the host machine.
+> ⚠ Copilot CLI support is untested. The review UI ships as a self-contained binary with no external runtime dependency.
 
 ## Usage
 
@@ -157,6 +157,54 @@ The Synthesizer emits a fixed structure. Severity buckets stay in the report eve
 - X critical, Y high, Z notes retained; W findings dropped (D no-evidence, M merged, C contradictions resolved).
 ```
 
+## Interactive review UI
+
+After the Synthesizer prints its report, the skill launches a self-contained binary (`dist/review-server`) that opens the browser. No external runtime is required — the entire React app is embedded in the binary.
+
+### Layout
+
+**Header** — shows branch name, timestamp, and the Synthesizer verdict. The **≡** button opens Settings.
+
+**Filter bar** — one-click severity filters: All / CRITICAL / HIGH / NOTE with per-severity counts.
+
+**Left panel** — two tabs:
+- *Findings* — all findings with severity badges and checkboxes. CRITICAL findings are pre-checked. Use `j`/`k` to navigate, `Space` to check/uncheck, `Enter` to jump to the diff.
+- *Files* — affected files with per-file finding counts.
+
+**Diff viewer (center)** — unified or split diff view. Annotation toolstrip:
+- *Select* — drag to select a range of lines
+- *Pinpoint* — click a single line to target it
+- *Markup* — highlight selected lines
+- *Comment* — select then immediately add a comment
+- *Redline* — mark selected lines for deletion
+- *Label* — apply a quick severity label to selected lines
+
+**Right panel (collapsible)** — two tabs:
+- *Comments* — per-finding comment fields for checked findings, plus a Global Notes field. Everything here is included in the payload sent back to Claude when you click Implement.
+- *Ask AI* — chat with Claude about the diff. Configurable model (Sonnet / Opus / Haiku). Annotation toolstrip has a quick-link to pre-fill the chat with context about the selected line.
+
+**Action bar** — bottom bar with:
+- *Select All / Deselect All* — bulk check controls
+- *Implement* — send checked findings + comments back to the agent for implementation
+- *Dismiss* — mark checked findings as dismissed with an optional reason; dismissed findings are excluded from the Implement payload and recorded in the saved markdown
+- *Save* — write a markdown review record to `docs/code-reviews/`
+- *Close* — finish without action. If there are unaddressed CRITICAL findings, a guard modal asks you to confirm or save first.
+
+**Settings pane** (≡ menu) — chat model selection, auto-close delay, and version display. Settings persist across sessions.
+
+**First-run modal** — shown on first launch to configure chat model and auto-close preference.
+
+**Update toast** — shown when a newer version is available, with a one-click copy of the install command.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Next / previous finding |
+| `Space` | Check / uncheck selected finding |
+| `Enter` | Jump to finding's diff |
+| `Escape` | Close modal or menu |
+
 ## Claude Code exclusive: session-exit gate
 
 This part runs only on Claude Code; it has no Codex or Copilot CLI equivalent.
@@ -173,7 +221,7 @@ On Codex and Copilot CLI you are responsible for invoking the skill before endin
 
 ## What it does NOT do
 
-- Does not auto-fix code unless you explicitly opt in via the interactive review UI's **Implement Selected** action.
+- Does not auto-fix code unless you explicitly opt in via the interactive review UI's **Implement** action.
 - Does not block commits or pushes — only gates the Stop event in the current Claude Code session.
 - Does not review binary, lockfile, or build-artifact diffs (filtered out before fan-out).
 - Does not report findings below 80% confidence.
@@ -185,13 +233,13 @@ For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 
 ## Screenshots
 
 ### Full review UI
-![Full review UI](docs/screenshots/review-ui.png)
+![Full review UI — three-panel layout with findings list, diff viewer, and comments panel](docs/screenshots/review-ui.png)
 
-### Annotation toolstrip
-![Annotation toolstrip with Comment mode active and diff loaded](docs/screenshots/annotation.png)
+### Annotation toolstrip and diff viewer
+![Diff viewer with annotation toolstrip showing Select, Pinpoint, Markup, Comment, Redline, and Label modes](docs/screenshots/annotation.png)
 
-### Chat panel
-![Chat panel with a question typed about the diff](docs/screenshots/chat-panel.png)
+### Ask AI chat panel
+![Ask AI tab in the right panel with a chat input ready to query Claude about the diff](docs/screenshots/chat-panel.png)
 
 ## Project layout
 
@@ -213,15 +261,20 @@ For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 
 │   ├── hooks.json
 │   ├── code-review-gate.sh
 │   └── check-update.sh
+├── packages/
+│   ├── shared/                         # @acr/shared — TypeScript types (Finding, Decision, Payload, etc.)
+│   ├── server/                         # @acr/server — Bun HTTP server, compiled to self-contained binary
+│   └── client/                         # @acr/client — React 19 + Vite + Tailwind 4 SPA, built to single HTML
 ├── references/
 │   └── platform-tools.md              # Claude Code / Codex / Copilot CLI tool mapping
 ├── scripts/
 │   └── capture-screenshots.js         # Playwright screenshot capture for docs
-├── server/
-│   └── review-server.js               # Node.js stdlib-only HTTP server + embedded HTML UI
 ├── skills/agentic-code-reviewer/SKILL.md
+├── tests/                             # Bun test runner — unit + parity tests
 └── install.sh                          # Installer for Claude Code plugin + Codex skill
 ```
+
+The server binary is compiled with `bun build --compile`. The built client HTML is statically imported at compile time — the resulting binary is fully self-contained with no runtime dependency on the end-user machine.
 
 ## License
 
