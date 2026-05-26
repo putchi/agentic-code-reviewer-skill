@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { existsSync, readFileSync, rmSync, mkdtempSync, copyFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, mkdtempSync, copyFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { detectPlatform, buildInstallCommand } from '../../packages/server/src/config';
 
 // Copy fixture to the default session path (session='unknown') so config resolves it
 const DEFAULT_FX = '/tmp/claude-code-review-unknown.json';
@@ -13,6 +14,53 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(tmpSave, { recursive: true, force: true });
+});
+
+describe('readFindings', () => {
+  const FIXTURE = '/tmp/claude-code-review-unknown.json';
+  const BACKUP = '/tmp/claude-code-review-unknown.json.bak';
+
+  test('returns parsed findings when file exists', async () => {
+    const { readFindings } = await import('../../packages/server/src/findings');
+    const data = readFindings();
+    expect(typeof data.verdict).toBe('string');
+    expect(Array.isArray(data.findings)).toBe(true);
+    expect(typeof data.sessionId).toBe('string');
+  });
+
+  test('returns default shape when file does not exist (catch path)', async () => {
+    // Temporarily hide the fixture to trigger the catch block
+    if (existsSync(FIXTURE)) {
+      copyFileSync(FIXTURE, BACKUP);
+      unlinkSync(FIXTURE);
+    }
+    try {
+      const { readFindings } = await import('../../packages/server/src/findings');
+      const data = readFindings();
+      expect(data.verdict).toBe('');
+      expect(Array.isArray(data.findings)).toBe(true);
+      expect(data.findings).toHaveLength(0);
+      expect(Array.isArray(data.files)).toBe(true);
+      expect(typeof data.timestamp).toBe('string');
+    } finally {
+      if (existsSync(BACKUP)) {
+        copyFileSync(BACKUP, FIXTURE);
+        unlinkSync(BACKUP);
+      }
+    }
+  });
+});
+
+describe('detectPlatform / buildInstallCommand', () => {
+  test('detectPlatform returns a string (possibly empty in dev)', () => {
+    const p = detectPlatform();
+    expect(typeof p).toBe('string');
+  });
+  test('buildInstallCommand returns a non-empty string', () => {
+    const cmd = buildInstallCommand();
+    expect(typeof cmd).toBe('string');
+    expect(cmd.length).toBeGreaterThan(0);
+  });
 });
 
 describe('saveMarkdown', () => {

@@ -2,11 +2,10 @@ import type { ReviewData } from '@acr/shared';
 
 interface Props {
   data: ReviewData | null;
-  onSettings: () => void;
-  onHelp: () => void;
+  onMenu: () => void;
 }
 
-export default function Header({ data, onSettings, onHelp }: Props) {
+export default function Header({ data, onMenu }: Props) {
   return (
     <div className="header">
       <div>
@@ -19,8 +18,7 @@ export default function Header({ data, onSettings, onHelp }: Props) {
         <div className="verdict-label">Verdict</div>
         <div className="verdict-text">{data?.verdict || 'Loading…'}</div>
       </div>
-      <button className="settings-btn" title="Help" onClick={onHelp}>?</button>
-      <button className="settings-btn" title="Settings" onClick={onSettings}>⚙</button>
+      <button className="settings-btn" title="Menu" onClick={onMenu}>≡</button>
     </div>
   );
 }

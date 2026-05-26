@@ -9,6 +9,6 @@
     "test":        "bun test tests/",
     "test:unit":   "bun test tests/unit/",
     "test:parity": "bun test tests/parity/",
-    "compile": "bun build packages/server/src/index.ts --compile --outfile dist/review-server"
+    "compile": "bun run build && bun build packages/server/src/index.ts --compile --outfile dist/review-server"
   }
 }

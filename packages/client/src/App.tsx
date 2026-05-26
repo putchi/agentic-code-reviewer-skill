@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Finding } from '@acr/shared';
 import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations } from './hooks/useAnnotations';
+import { useSettings } from './hooks/useSettings';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import LeftPanel from './components/LeftPanel/index';
@@ -10,12 +11,15 @@ import DiffViewer from './components/DiffViewer/index';
 import RightPanel from './components/RightPanel/index';
 import ActionBar from './components/ActionBar';
 import HelpModal from './components/modals/HelpModal';
-import SettingsPopover from './components/modals/SettingsPopover';
+import SettingsPane from './components/modals/SettingsPane';
+import FirstRunModal from './components/modals/FirstRunModal';
 import UpdateToast from './components/modals/UpdateToast';
 
 export default function App() {
-  const { data, isLoading, error } = useReviewData();
+  const { data, isLoading: reviewLoading, error } = useReviewData();
+  const { settings, updateSettings, isLoading: settingsLoading } = useSettings();
   const { annotations } = useAnnotations();
+  const isLoading = reviewLoading || settingsLoading;
   const [activeFilter, setActiveFilter] = useState<'ALL'|'CRITICAL'|'HIGH'|'NOTE'>('ALL');
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -23,11 +27,9 @@ export default function App() {
   const [splitView, setSplitView] = useLocalStorage('acr-split-view', false);
   const [comments, setComments] = useLocalStorage<Record<string, string>>('acr-comments', {});
   const [checkedIds, setCheckedIds] = useLocalStorage<string[]>('acr-checked-ids', []);
-  const [model, setModel] = useLocalStorage('acr-chat-model', 'claude-sonnet-4-6');
   const [showHelp, setShowHelp] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [chatPrefill, setChatPrefill] = useState('');
-  const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
   const checkedSet = new Set(checkedIds);
 
@@ -48,12 +50,11 @@ export default function App() {
   for (const f of findings) { if (f.severity in counts) counts[f.severity as keyof typeof counts]++; }
   const filtered = findings.filter(f => activeFilter === 'ALL' || f.severity === activeFilter);
 
-  // Keyboard shortcuts (Task 23)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
       if (['TEXTAREA', 'INPUT', 'SELECT'].includes(t.tagName) || t.isContentEditable) return;
-      if (e.key === 'Escape') { setShowHelp(false); setShowSettings(false); return; }
+      if (e.key === 'Escape') { setShowHelp(false); setShowMenu(false); return; }
       if (e.key === 'j' || e.key === 'k') {
         const idx = filtered.findIndex(f => f.id === selectedFinding?.id);
         const next = e.key === 'j' ? idx + 1 : idx - 1;
@@ -109,9 +110,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header data={data}
-        onSettings={() => setShowSettings(true)}
-        onHelp={() => setShowHelp(true)} />
+      <Header data={data} onMenu={() => setShowMenu(true)} />
       <FilterBar activeFilter={activeFilter} counts={counts} onChange={setActiveFilter} />
       <div className="panels">
         <LeftPanel
@@ -136,7 +135,7 @@ export default function App() {
           <RightPanel
             findings={findings} checkedIds={checkedSet}
             comments={comments} globalComment={comments['_global'] || ''}
-            model={model as string} currentFile={selectedFile ?? undefined}
+            model={settings.chatModel} currentFile={selectedFile ?? undefined}
             chatPrefill={chatPrefill}
             onChatPrefillConsumed={() => setChatPrefill('')}
             onCommentChange={handleCommentChange}
@@ -148,13 +147,18 @@ export default function App() {
         findings={findings} checkedIds={checkedSet}
         comments={comments} globalComment={comments['_global'] || ''}
         lineAnnotations={annotations}
+        autoCloseMs={settings.autoCloseMs}
         onSelectAll={selectAll} onDeselectAll={deselectAll} />
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
-      {showSettings && (
-        <SettingsPopover model={model as string} anchorRef={settingsBtnRef}
-          onModel={m => setModel(m)}
-          onClose={() => setShowSettings(false)} />
+      {!isLoading && !settings.firstRunDone && (
+        <FirstRunModal settings={settings} onSave={patch => updateSettings(patch)} />
       )}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      <SettingsPane
+        open={showMenu}
+        settings={settings}
+        onUpdate={patch => updateSettings(patch)}
+        onClose={() => setShowMenu(false)}
+        onHelp={() => setShowHelp(true)} />
       <UpdateToast />
     </div>
   );

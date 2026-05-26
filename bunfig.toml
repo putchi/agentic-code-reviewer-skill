@@ -1,0 +1,10 @@
+# bunfig.toml — Bun workspace configuration
+#
+# Note on .bun-build files:
+#   `bun build --compile` writes a content-addressed cache file (*.bun-build)
+#   to the current working directory. There is no flag to change this location.
+#   These files are gitignored via `*.bun-build` in .gitignore.
+#   They are safe to delete at any time; Bun will recreate them on the next compile.
+#
+# The compiled binary itself is written to dist/review-server (also gitignored).
+# To build: bun run compile  (runs `bun run build` then `bun build --compile`)
