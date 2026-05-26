@@ -17,6 +17,8 @@ After a fresh clone, install all workspace dependencies:
 bun install
 ```
 
+Do **not** use `npm install` or `yarn` — the monorepo uses Bun's `workspace:*` protocol which only Bun understands.
+
 ## Commands
 
 All commands run from the repo root using `/opt/homebrew/bin/bun` (the system Bun; `~/.bun/bin/bun` hangs on install).
