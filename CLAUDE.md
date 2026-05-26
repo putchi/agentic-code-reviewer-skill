@@ -145,7 +145,7 @@ gh release view vX.Y.Z   # confirm all 3 binaries attached
 After every `git push`, delete any `.bun-build` cache files left in the repo root:
 
 ```bash
-rm -f *.bun-build
+rm -f *.bun-build .*.bun-build
 ```
 
 These are content-addressed Bun compile artifacts that accumulate locally and are not useful after the push is done. They are gitignored but clutter the working directory.
