@@ -2,17 +2,23 @@ import { portArg } from './config';
 import { serveClient } from './serve-client';
 import { handleReview } from './routes/review';
 import { handleVersionCheck } from './routes/version';
-import { handleImplement, handleSave, handleDone } from './routes/decisions';
 import { handleChatSession, handleChatQuery, handleChatAbort } from './routes/chat';
+import { handleImplement, handleSave, handleDone } from './routes/decisions';
+import { resetIdle } from './timeout';
+import { openBrowser } from './browser';
+
+const onIdle = () => { console.log('Idle timeout — closing server.'); server.stop(); process.exit(0); };
+
 const server = Bun.serve({
   port: portArg || 0,
   hostname: '127.0.0.1',
   async fetch(req) {
+    resetIdle(onIdle);
     const url = new URL(req.url);
     if (req.method === 'GET') {
-      if (url.pathname === '/') return serveClient();
-      if (url.pathname === '/api/review') return handleReview();
-      if (url.pathname === '/api/version-check') return await handleVersionCheck();
+      if (url.pathname === '/')                   return serveClient();
+      if (url.pathname === '/api/review')         return handleReview();
+      if (url.pathname === '/api/version-check')  return await handleVersionCheck();
     }
     if (req.method === 'POST') {
       const payload = await req.json().catch(() => ({}));
@@ -26,4 +32,8 @@ const server = Bun.serve({
     return new Response('Not found', { status: 404 });
   },
 });
-console.log(`Review server listening at http://${server.hostname}:${server.port}`);
+
+const url = `http://${server.hostname}:${server.port}`;
+console.log(`Review server listening at ${url}`);
+resetIdle(onIdle);
+openBrowser(url);
