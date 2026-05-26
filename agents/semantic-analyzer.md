@@ -1,7 +1,7 @@
 ---
 name: semantic-analyzer
 description: Semantic and logic bug analyzer. Use when reviewing code for correctness issues including control flow bugs, data mutation errors, null/undefined handling failures, off-by-one errors, race conditions, and incorrect state assumptions. Invoked as part of the agentic-code-reviewer skill.
-model: opus
+model: sonnet
 color: red
 tools: ["Bash", "Read", "Grep"]
 ---

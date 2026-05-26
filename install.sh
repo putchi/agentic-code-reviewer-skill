@@ -69,18 +69,25 @@ Usage:
   ./install.sh --platform claude
   ./install.sh --platform codex
   ./install.sh --platform both
+  ./install.sh --platform both --force
   curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash
   curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform claude
-  curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both
+  curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both --force
 
 Platforms:
   claude  Install as a Claude Code plugin with hooks enabled
   codex   Install to ~/.codex/skills/agentic-code-reviewer
   both    Install the Claude Code plugin and the Codex skill
+
+Flags:
+  -y, --yes, --force   Skip all "Replace existing install?" prompts and overwrite
+                       any existing Claude Code plugin and/or Codex skill in place.
+                       Recommended for the curl one-liner and CI runs.
 EOF
 }
 
 PLATFORM=""
+FORCE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -91,6 +98,10 @@ while [ $# -gt 0 ]; do
       fi
       PLATFORM="$2"
       shift 2
+      ;;
+    -y|--yes|--force)
+      FORCE=1
+      shift
       ;;
     -h|--help)
       print_usage
@@ -161,6 +172,7 @@ install_codex_skill() {
   local skill_md="$ROOT_DIR/skills/agentic-code-reviewer/SKILL.md"
   local agents_dir="$ROOT_DIR/agents"
   local refs_dir="$ROOT_DIR/references"
+  local server_dir="$ROOT_DIR/server"
 
   if [ ! -f "$skill_md" ]; then
     echo "Error: source skill not found: $skill_md" >&2
@@ -174,24 +186,32 @@ install_codex_skill() {
     echo "Error: references directory not found: $refs_dir" >&2
     exit 1
   fi
+  if [ ! -d "$server_dir" ]; then
+    echo "Error: server directory not found: $server_dir" >&2
+    exit 1
+  fi
 
   if [ -e "$target_dir" ]; then
-    if ! read_prompt CONFIRM "Replace existing install at $target_dir? [y/N] "; then
-      echo "Install cancelled."
-      exit 0
-    fi
-    case "$CONFIRM" in
-      y|Y|yes|YES) ;;
-      *)
-        if [ "$on_decline" = "skip" ]; then
-          echo "Skipped Agentic Code Reviewer for codex:"
-          echo "  $target_dir"
-          return 0
-        fi
+    if [ "$FORCE" = "1" ]; then
+      echo "Overwriting existing Codex install at $target_dir (--force)."
+    else
+      if ! read_prompt CONFIRM "Replace existing install at $target_dir? [y/N] "; then
         echo "Install cancelled."
         exit 0
-        ;;
-    esac
+      fi
+      case "$CONFIRM" in
+        y|Y|yes|YES) ;;
+        *)
+          if [ "$on_decline" = "skip" ]; then
+            echo "Skipped Agentic Code Reviewer for codex:"
+            echo "  $target_dir"
+            return 0
+          fi
+          echo "Install cancelled."
+          exit 0
+          ;;
+      esac
+    fi
     rm -rf "$target_dir"
   fi
 
@@ -199,6 +219,10 @@ install_codex_skill() {
   cp "$skill_md" "$target_dir/SKILL.md"
   cp -R "$agents_dir" "$target_dir/agents"
   cp -R "$refs_dir" "$target_dir/references"
+  cp -R "$server_dir" "$target_dir/server"
+  # Copy the plugin manifest so the web UI's update-check can read the installed version.
+  mkdir -p "$target_dir/.claude-plugin"
+  cp "$ROOT_DIR/.claude-plugin/plugin.json" "$target_dir/.claude-plugin/plugin.json"
 
   echo "Installed Agentic Code Reviewer for codex:"
   echo "  $target_dir"
@@ -268,6 +292,13 @@ remove_legacy_claude_skill() {
     return 0
   fi
 
+  if [ "$FORCE" = "1" ]; then
+    rm -rf "$legacy_dir"
+    echo "Removed legacy manual Claude plugin (--force):"
+    echo "  $legacy_dir"
+    return 0
+  fi
+
   if ! read_prompt CONFIRM "Remove legacy manual Claude plugin install at $legacy_dir? [y/N] "; then
     echo "Legacy manual Claude plugin left in place:"
     echo "  $legacy_dir"
@@ -325,22 +356,26 @@ install_claude_plugin() {
   local known_marketplaces_file="$plugin_root/known_marketplaces.json"
 
   if [ -e "$marketplace_dir" ] || [ -e "$cache_dir" ]; then
-    if ! read_prompt CONFIRM "Replace existing Claude plugin install for Agentic Code Reviewer? [y/N] "; then
-      echo "Install cancelled."
-      exit 0
-    fi
-    case "$CONFIRM" in
-      y|Y|yes|YES) ;;
-      *)
-        if [ "$on_decline" = "skip" ]; then
-          echo "Skipped Agentic Code Reviewer for claude:"
-          echo "  $marketplace_dir"
-          return 0
-        fi
+    if [ "$FORCE" = "1" ]; then
+      echo "Overwriting existing Claude Code plugin install (--force)."
+    else
+      if ! read_prompt CONFIRM "Replace existing Claude plugin install for Agentic Code Reviewer? [y/N] "; then
         echo "Install cancelled."
         exit 0
-        ;;
-    esac
+      fi
+      case "$CONFIRM" in
+        y|Y|yes|YES) ;;
+        *)
+          if [ "$on_decline" = "skip" ]; then
+            echo "Skipped Agentic Code Reviewer for claude:"
+            echo "  $marketplace_dir"
+            return 0
+          fi
+          echo "Install cancelled."
+          exit 0
+          ;;
+      esac
+    fi
   fi
 
   copy_repo_tree "$marketplace_dir"
@@ -361,6 +396,9 @@ if [ -z "$PLATFORM" ]; then
   if ! codex_is_installed; then
     echo "Codex not detected — installing for Claude Code only."
     PLATFORM="claude"
+  elif [ "$FORCE" = "1" ]; then
+    echo "Codex detected; --force set without --platform → installing for both (claude + codex)."
+    PLATFORM="both"
   else
     echo "Install Agentic Code Reviewer for:"
     echo "  1) Claude Code plugin (hooks enabled)  [default]"

@@ -1,7 +1,7 @@
 ---
 name: test-coverage-analyzer
 description: Test coverage gap analyzer. Use when reviewing code to identify missing test cases for modified code, untested edge cases, behavioral coverage gaps, and tests that won't catch real bugs. Does NOT check line coverage numbers — focuses on meaningful behavioral gaps. Invoked as part of the agentic-code-reviewer skill.
-model: sonnet
+model: haiku
 color: yellow
 tools: ["Bash", "Read", "Grep", "Glob"]
 ---

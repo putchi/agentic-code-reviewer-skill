@@ -1,7 +1,7 @@
 ---
 name: senior-dev-reviewer
 description: Senior developer reviewing the EXISTING IMPLEMENTATION in the diff. Focuses on this file and its immediate neighborhood — project-convention consistency, local DRY, naming, error handling, magic numbers, dead code, local performance smells. Does NOT cover system-level architecture, module boundaries, or forward-looking design (that's the architecture-reviewer). Invoked as part of the agentic-code-reviewer skill.
-model: opus
+model: sonnet
 color: green
 tools: ["Bash", "Read", "Grep", "Glob"]
 ---

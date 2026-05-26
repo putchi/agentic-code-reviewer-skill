@@ -1,7 +1,7 @@
 ---
 name: architecture-reviewer
 description: System-level architecture reviewer. Focuses on the BIGGER PICTURE — module/component boundaries, cross-cutting concerns, how this change fits the broader system, and how it will hold up under likely future changes. Does NOT cover same-file naming, local code smells, or convention consistency (that's the senior-dev-reviewer). Invoked as part of the agentic-code-reviewer skill.
-model: opus
+model: sonnet
 color: blue
 tools: ["Bash", "Read", "Grep", "Glob"]
 ---

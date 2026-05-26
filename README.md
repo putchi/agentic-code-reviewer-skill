@@ -1,10 +1,10 @@
 # Agentic Code Reviewer
 
-A portable skill that runs 5 specialized review agents in parallel over your git diff, then an Opus Chairman pass that dedupes findings, re-rates them by evidence, and writes a verdict. Works on **Claude Code**, **Codex**, and **Copilot CLI**.
+A portable skill that runs 5 specialized review agents in parallel over your git diff, then an Opus Synthesizer pass that dedupes findings, re-rates them by evidence, and writes a verdict. After the report is printed, a local web UI opens in the browser so you can triage findings, annotate them, and send selected ones back to the agent for implementation. Works on **Claude Code**, **Codex**, and **Copilot CLI**.
 
 ## What it does
 
-Five specialist reviewers — semantic, security, architecture, test-coverage, senior-dev — each look at the same `git diff` from their own angle and report only high-confidence findings (≥80). A final Chairman/Judge pass on Opus takes all five raw outputs, drops anything that can't cite concrete code, merges duplicates, resolves contradictions, re-rates severity by actual blast radius, and writes a 2-sentence top-line verdict.
+Five specialist reviewers — semantic, security, architecture, test-coverage, senior-dev — each look at the same `git diff` from their own angle and report only high-confidence findings (≥80). A final Synthesizer pass on Opus takes all five raw outputs, drops anything that can't cite concrete code, merges duplicates, resolves contradictions, re-rates severity by actual blast radius, and writes a 2-sentence top-line verdict.
 
 On Claude Code there's an extra layer: a Stop hook that blocks the session from ending until the review has actually run (with a one-time escape hatch). On Codex and Copilot CLI you invoke the skill manually — see [Claude Code exclusive: session-exit gate](#claude-code-exclusive-session-exit-gate) below.
 
@@ -12,20 +12,21 @@ On Claude Code there's an extra layer: a Stop hook that blocks the session from 
 
 | Agent | Focus | Model |
 |---|---|---|
-| `semantic-analyzer` | Logic correctness, control flow, null handling, off-by-one, race conditions | Opus |
+| `semantic-analyzer` | Logic correctness, control flow, null handling, off-by-one, race conditions | Sonnet |
 | `security-scanner` | OWASP Top 10, injection, secrets in code, auth/authorization gaps | Sonnet |
-| `architecture-reviewer` | Module boundaries, system-level SOLID, missing abstractions, YAGNI | Opus |
-| `test-coverage-analyzer` | Behavioral test gaps, missing edge cases, untested error paths | Sonnet |
-| `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Opus |
-| `chairman` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus |
+| `architecture-reviewer` | Module boundaries, system-level SOLID, missing abstractions, YAGNI | Sonnet |
+| `test-coverage-analyzer` | Behavioral test gaps, missing edge cases, untested error paths | Haiku |
+| `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Sonnet |
+| `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus |
 
 ## How it works
 
 1. **Pre-flight.** Guard for being inside a git repo. Run `git diff --text HEAD` (then plain `git diff` as fallback) and filter out lockfiles, minified assets, images, and build directories. If the filtered diff is empty, exit cleanly with `No reviewable changes`. If the diff exceeds 2000 lines or 50 files, print a cost/time warning.
 2. **Fan out.** Dispatch all 5 reviewer agents in parallel using your platform's subagent tool (see the [platform matrix](#platform-support-matrix)). Each agent gets the same filtered diff and a strict prompt: report only findings with confidence ≥80, formatted as `[SEVERITY] file:line — finding — reasoning`.
-3. **Chairman pass.** Send the diff + all 5 raw outputs to the `chairman` agent. It applies judge rules (evidence required, semantic dedupe, contradiction resolution, severity re-rated by blast radius, drop speculation) and emits the final report.
-4. **Print verdict.** The Chairman's output is the final report — Verdict / CRITICAL / HIGH / NOTES / Summary. No further aggregation.
+3. **Synthesizer pass.** Send the diff + all 5 raw outputs to the `synthesizer` agent. It applies judge rules (evidence required, semantic dedupe, contradiction resolution, severity re-rated by blast radius, drop speculation) and emits the final report.
+4. **Print verdict.** The Synthesizer's output is the final report — Verdict / CRITICAL / HIGH / NOTES / Summary. No further aggregation.
 5. **Completion signal.** Touch `/tmp/claude-code-review-${SESSION_ID}.done` and emit `<!-- AGENTIC-REVIEW-COMPLETE -->`. On Claude Code these unblock the Stop hook; on other platforms they are harmless no-ops.
+6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch a local Node.js server (`server/review-server.js`) that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split), per-finding comment cards plus global notes. Click **Implement Selected** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Done** to close without action. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
 
 ## Platform support matrix
 
@@ -34,6 +35,7 @@ On Claude Code there's an extra layer: a Stop hook that blocks the session from 
 | Parallel subagent fan-out | ✅ | ✅ (requires `multi_agent = true`) | ✅ |
 | Skill invocation | `/agentic-code-reviewer` + auto-trigger | skills load natively | `skill` tool |
 | Session-exit auto-gate | ✅ | ❌ | ❌ |
+| Interactive review web UI | ✅ | ✅ | ⚠ untested |
 | Subagent dispatch tool | `Agent` / `Task` | `spawn_agent` | `task agent_type: general-purpose` |
 
 Full tool-name mapping is in [`references/platform-tools.md`](references/platform-tools.md).
@@ -73,7 +75,7 @@ cd agentic-code-reviewer-skill
 
 Verify with `/plugin` and confirm `agentic-code-reviewer` is listed.
 
-Required tools: `git`, `python3` (used by the Stop hook to parse hook JSON), `bash`.
+Required tools: `git`, `python3` (used by the Stop hook to parse hook JSON), `bash`, `node` (v18+, used to launch the interactive review web UI in Step 6).
 
 ### Codex (CLI + App)
 
@@ -88,6 +90,14 @@ Or install for both Claude Code and Codex at once:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both
 ```
+
+**Upgrading an existing install:** when the skill is already installed, the installer asks before overwriting. To skip the prompt and force-overwrite both platforms in place, add `--force` (alias: `-y` or `--yes`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both --force
+```
+
+`--force` also removes any legacy manual install at `~/.claude/plugins/agentic-code-reviewer/` without asking. If you pass `--force` without `--platform` and Codex is detected, the installer auto-picks `both`.
 
 **Option B — from a local clone:**
 
@@ -108,7 +118,7 @@ Without this, parallel subagent dispatch will fail.
 
 ### Copilot CLI
 
-Manual install: clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, and `references/` into your Copilot CLI skills directory.
+Manual install: clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, `references/`, and `server/` into your Copilot CLI skills directory.
 
 ```
 git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
@@ -124,7 +134,7 @@ On every platform, empty diffs exit cleanly (`No reviewable changes — nothing 
 
 ## Output format
 
-The Chairman emits a fixed structure. Severity buckets stay in the report even if empty (they read `_None._`).
+The Synthesizer emits a fixed structure. Severity buckets stay in the report even if empty (they read `_None._`).
 
 ```
 ## Code Review Results
@@ -161,34 +171,38 @@ On Codex and Copilot CLI you are responsible for invoking the skill before endin
 
 ## What it does NOT do
 
-- Does not auto-fix code — it only reports findings.
+- Does not auto-fix code unless you explicitly opt in via the interactive review UI's **Implement Selected** action.
 - Does not block commits or pushes — only gates the Stop event in the current Claude Code session.
 - Does not review binary, lockfile, or build-artifact diffs (filtered out before fan-out).
 - Does not report findings below 80% confidence.
 
 ## Costs and timing
 
-For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 Chairman pass and takes roughly **30–90 seconds** at an estimated **~$0.30–$0.80**. Smaller diffs are proportionally cheaper. The Chairman runs on Opus; the reviewers are a mix of Opus and Sonnet (see [the review council](#the-review-council)).
+For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 Synthesizer pass and takes roughly **30–90 seconds** at an estimated **~$0.08–$0.25**. Smaller diffs are proportionally cheaper. Only the Synthesizer runs on Opus; 4 reviewers run on Sonnet and 1 (test-coverage) runs on Haiku (see [the review council](#the-review-council)).
 
 ## Project layout
 
 ```
 .
 ├── .claude-plugin/plugin.json     # Claude Code manifest
-├── agents/                        # 5 reviewers + chairman (prompts are portable)
+├── agents/                        # 5 reviewers + synthesizer (prompts are portable)
 │   ├── semantic-analyzer.md
 │   ├── security-scanner.md
 │   ├── architecture-reviewer.md
 │   ├── test-coverage-analyzer.md
 │   ├── senior-dev-reviewer.md
-│   └── chairman.md
+│   └── synthesizer.md
 ├── commands/agentic-code-reviewer.md   # Claude Code slash command
 ├── hooks/                              # Claude Code exclusive (Stop-event gate)
 │   ├── hooks.json
-│   └── code-review-gate.sh
+│   ├── code-review-gate.sh
+│   └── check-update.sh
 ├── references/
 │   └── platform-tools.md          # Claude Code / Codex / Copilot CLI mapping
-└── skills/agentic-code-reviewer/SKILL.md
+├── server/
+│   └── review-server.js           # Node.js stdlib-only HTTP server + embedded HTML UI
+├── skills/agentic-code-reviewer/SKILL.md
+└── install.sh                     # Installer for Claude Code plugin + Codex skill
 ```
 
 ## License
