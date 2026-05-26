@@ -97,7 +97,50 @@ The server is **not** started by the skill; the skill invokes the compiled binar
 
 ### Release
 
-CI (`release.yml`) triggers on `v*` tags. It builds three platform binaries (macOS arm64, macOS x64, Linux x64) and attaches them to the GitHub release. To publish: push a version tag (`git tag v1.x.x && git push origin v1.x.x`). Update `version` in `.claude-plugin/plugin.json` before tagging.
+CI (`release.yml`) triggers on `v*` tags. It builds three platform binaries (macOS arm64, macOS x64, Linux x64) and attaches them to the GitHub release.
+
+#### When to tag a new release
+
+A new binary is only needed when `packages/server/` or `packages/client/` code changes, because the binary embeds the compiled client HTML. Changes to `install.sh`, `skills/`, `agents/`, `hooks/`, or `.claude-plugin/` do **not** require a rebuild — `install.sh` copies the full repo tree and users get those changes from `main` immediately.
+
+#### Version bump checklist
+
+Every version bump must update **both** of these files — they must always match:
+
+1. `.claude-plugin/plugin.json` — the `"version"` field
+2. `.claude-plugin/marketplace.json` — the `"version"` field inside `plugins[0]`
+
+Forgetting `marketplace.json` means the update-check toast will never show (it compares installed version against `marketplace.json`), and Claude Code will keep creating a stale versioned cache directory named after the old version.
+
+#### plugin.json schema rules
+
+The `plugin.json` manifest must **not** include a `commands` field. Claude Code discovers commands automatically from the `commands/` directory. Adding `"commands": "commands/"` (or any value) causes a schema validation error on `/reload-plugins`:
+
+```
+Validation errors: commands: Invalid input
+```
+
+Valid manifest fields: `name`, `description`, `version`, `author`, `repository`, `homepage`, `keywords`. Nothing else.
+
+#### Release steps
+
+```bash
+# 1. Bump version in both manifest files
+# 2. Commit
+git add .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git commit -m "Bump version to X.Y.Z"
+
+# 3. Push commits
+git push origin main
+
+# 4. Tag and push (triggers CI)
+git tag vX.Y.Z
+git push origin vX.Y.Z
+
+# 5. Verify CI and release assets
+gh run list --limit 5
+gh release view vX.Y.Z   # confirm all 3 binaries attached
+```
 
 After every `git push`, delete any `.bun-build` cache files left in the repo root:
 
