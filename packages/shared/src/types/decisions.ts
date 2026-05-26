@@ -9,4 +9,6 @@ export interface DecisionPayload {
   comments: Record<string, string>;
   globalComment: string;
   lineAnnotations: Record<string, LineAnnotation>;
+  dismissedIds: string[];
+  dismissReasons: Record<string, string>;
 }

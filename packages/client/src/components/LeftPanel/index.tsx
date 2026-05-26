@@ -9,14 +9,16 @@ interface Props {
   selectedFindingId: string | null;
   selectedFile: string | null;
   checkedIds: Set<string>;
+  dismissedIds: Set<string>;
   onSelectFinding: (f: Finding) => void;
   onSelectFile: (path: string) => void;
   onToggleCheck: (id: string) => void;
+  onRestoreFinding: (id: string) => void;
 }
 
 export default function LeftPanel({
-  findings, files, selectedFindingId, selectedFile, checkedIds,
-  onSelectFinding, onSelectFile, onToggleCheck,
+  findings, files, selectedFindingId, selectedFile, checkedIds, dismissedIds,
+  onSelectFinding, onSelectFile, onToggleCheck, onRestoreFinding,
 }: Props) {
   const [tab, setTab] = useState<'findings'|'files'>('findings');
   return (
@@ -27,7 +29,8 @@ export default function LeftPanel({
       </div>
       <div className="panel-scroll" style={{ display: tab === 'findings' ? '' : 'none' }}>
         <FindingsList findings={findings} selectedId={selectedFindingId}
-          checkedIds={checkedIds} onSelect={onSelectFinding} onToggle={onToggleCheck} />
+          checkedIds={checkedIds} dismissedIds={dismissedIds}
+          onSelect={onSelectFinding} onToggle={onToggleCheck} onRestore={onRestoreFinding} />
       </div>
       <div className="panel-scroll" style={{ display: tab === 'files' ? '' : 'none' }}>
         <FilesList files={files} findings={findings} selectedFile={selectedFile} onSelect={onSelectFile} />

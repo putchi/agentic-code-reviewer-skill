@@ -1,4 +1,4 @@
-# Plannotator Architecture Redesign — Implementation Plan
+# Web App Architecture Redesign — Implementation Plan
 
 > **For agentic workers:** Use superpowers:executing-plans (or superpowers:subagent-driven-development) to implement this task-by-task. Steps use `- [ ]` checkboxes.
 
@@ -31,15 +31,15 @@
 
 ---
 
-**Goal:** Restructure `agentic-code-reviewer-skill` to match Plannotator's monorepo architecture (React 19 + Vite 6 + Tailwind 4 + Bun) while preserving every existing capability (8 API routes, SSE chat streaming, annotation toolstrip, diff viewer, 30-min idle timeout, Stop hook integration).
+**Goal:** Restructure `agentic-code-reviewer-skill` to match Web App's monorepo architecture (React 19 + Vite 6 + Tailwind 4 + Bun) while preserving every existing capability (8 API routes, SSE chat streaming, annotation toolstrip, diff viewer, 30-min idle timeout, Stop hook integration).
 
-**Architecture:** Bun workspaces with `packages/shared` (TS types), `packages/client` (React + Vite, built to a single `dist/index.html` via `vite-plugin-singlefile`), and `packages/server` (thin Bun HTTP server that reads `dist/index.html` and exposes the same 8 routes). The server is compiled with `bun build --compile` into a self-contained native binary (like Plannotator) — **no Bun installation required on end-user machines**. `install.sh` downloads the pre-built platform binary from the GitHub release. `server/review-server.js` remains as a thin shim that invokes the binary, keeping hooks paths intact.
+**Architecture:** Bun workspaces with `packages/shared` (TS types), `packages/client` (React + Vite, built to a single `dist/index.html` via `vite-plugin-singlefile`), and `packages/server` (thin Bun HTTP server that reads `dist/index.html` and exposes the same 8 routes). The server is compiled with `bun build --compile` into a self-contained native binary (like Web App) — **no Bun installation required on end-user machines**. `install.sh` downloads the pre-built platform binary from the GitHub release. `server/review-server.js` remains as a thin shim that invokes the binary, keeping hooks paths intact.
 
-**Distribution model (confirmed 2026-05-26):** Plannotator ships as a self-contained Mach-O arm64 binary compiled with `bun build --compile` — the Bun runtime is bundled inside (visible as `__BUN` section). This skill must follow the same pattern: CI produces platform binaries (darwin-arm64, darwin-x64, linux-x64) for each release; `install.sh` downloads the correct binary. End users never need Bun. Developers need Bun for `vite build` and `bun build --compile`.
+**Distribution model (confirmed 2026-05-26):** Web App ships as a self-contained Mach-O arm64 binary compiled with `bun build --compile` — the Bun runtime is bundled inside (visible as `__BUN` section). This skill must follow the same pattern: CI produces platform binaries (darwin-arm64, darwin-x64, linux-x64) for each release; `install.sh` downloads the correct binary. End users never need Bun. Developers need Bun for `vite build` and `bun build --compile`.
 
 **Tech Stack:** Bun (runtime + test + package manager), React 19, Vite 6, Tailwind CSS 4, `vite-plugin-singlefile`, `@fortawesome/react-fontawesome`, TypeScript 5.
 
-**Spec:** `docs/superpowers/specs/2026-05-26-plannotator-architecture-redesign.md`
+**Spec:** `docs/superpowers/specs/2026-05-26-Web App-architecture-redesign.md`
 
 ---
 
@@ -1347,7 +1347,7 @@ After each task: build, verify in browser, commit with a descriptive message.
 
 ## Task 24 (REVISED): install.sh — download pre-built binary
 
-**Decision (2026-05-26):** End users must NOT need Bun installed. Distribution follows the Plannotator pattern: CI compiles `bun build --compile` platform binaries; `install.sh` downloads the correct one.
+**Decision (2026-05-26):** End users must NOT need Bun installed. Distribution follows the Web App pattern: CI compiles `bun build --compile` platform binaries; `install.sh` downloads the correct one.
 
 **Files:** Modify `install.sh`. Add `.github/workflows/release.yml` (CI build). Modify `server/review-server.js` shim to invoke the binary.
 

@@ -28,6 +28,8 @@ export function saveMarkdown(
   }
   const decision = data._decision || {};
   const selectedIds = new Set<string>(decision.selectedIds || []);
+  const dismissedIds = new Set<string>(decision.dismissedIds || []);
+  const dismissReasons: Record<string, string> = decision.dismissReasons || {};
   const comments: Record<string, string> = decision.comments || {};
   const globalComment: string = decision.globalComment || '';
 
@@ -35,10 +37,14 @@ export function saveMarkdown(
   md += `**Verdict:** ${data.verdict || '_No verdict_'}\n\n`;
   if (globalComment) md += `> **Your notes:** ${globalComment}\n\n`;
 
+  const dismissedFindings: any[] = [];
   for (const [sev, items] of Object.entries(groups)) {
+    const active = items.filter((f: any) => !dismissedIds.has(f.id));
+    const dismissed = items.filter((f: any) => dismissedIds.has(f.id));
+    dismissedFindings.push(...dismissed);
     md += `## ${sev}\n\n`;
-    if (!items.length) { md += '_None._\n\n'; continue; }
-    for (const f of items) {
+    if (!active.length) { md += '_None._\n\n'; continue; }
+    for (const f of active) {
       const status = selectedIds.has(f.id) ? '☑ selected for implementation' : '☐ not selected';
       md += `- **${f.location || f.file}** — ${f.finding}\n`;
       if (f.reasoning) md += `  - Reasoning: ${f.reasoning}\n`;
@@ -50,6 +56,16 @@ export function saveMarkdown(
     }
   }
   md += `## Summary\n\n${data.summary || ''}\n\n`;
+
+  if (dismissedFindings.length) {
+    md += `## Dismissed Findings\n\n`;
+    for (const f of dismissedFindings) {
+      md += `- **[${f.severity}]** **${f.location || f.file}** — ${f.finding}\n`;
+      const reason = dismissReasons[f.id];
+      if (reason) md += `  - Reason: ${reason}\n`;
+      md += '\n';
+    }
+  }
 
   const annots = lineAnnotations || {};
   const keys = Object.keys(annots);

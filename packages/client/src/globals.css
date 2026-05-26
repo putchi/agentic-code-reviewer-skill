@@ -63,6 +63,8 @@ html, body {
 .finding-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border-radius: var(--radius); cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all .15s; }
 .finding-item:hover { background: var(--surface); }
 .finding-item.active { background: var(--surface); border-color: var(--accent); }
+.finding-item.dismissed { cursor: default; }
+.finding-item.dismissed:hover { background: transparent; }
 .finding-item input[type=checkbox] { margin-top: 2px; flex-shrink: 0; }
 .finding-location { font-size: 11px; color: var(--text-dim); font-family: monospace; margin-bottom: 2px; }
 .finding-text { font-size: 12px; color: var(--text); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -99,6 +101,7 @@ html, body {
 .toolstrip-btn .ts-label { display: none; }
 .toolstrip-btn:hover .ts-label, .toolstrip-btn.active .ts-label { display: inline; }
 .toolstrip-btn:hover { color: var(--text); background: var(--surface); }
+.ts-icon { pointer-events: none; }
 .toolstrip-btn:active { transform: scale(0.97); }
 .toolstrip-btn.active { font-weight: 500; color: var(--text); background: var(--surface); }
 .toolstrip-help { position: absolute; right: 12px; font-size: 11px; color: var(--text-dim); cursor: pointer; text-decoration: underline dotted; }
@@ -172,6 +175,13 @@ html, body {
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--bg3); font-weight: 600; }
 .btn-primary:hover { opacity: .9; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-outline { border-color: var(--accent); color: var(--accent); }
+.btn-outline:hover { background: var(--accent); color: var(--bg3); }
+.btn-ghost { border-color: transparent; color: var(--text-dim); }
+.btn-ghost:hover { border-color: var(--border); color: var(--text); background: var(--surface); }
+.btn-dismiss { background: transparent; border-color: var(--red); color: var(--red); font-weight: 500; }
+.btn-dismiss:hover { background: var(--red); color: var(--bg3); }
+.btn-dismiss:disabled { opacity: .4; cursor: not-allowed; }
 .status-msg { font-size: 12px; color: var(--green); margin-left: 8px; }
 
 /* Mini toolbar */
