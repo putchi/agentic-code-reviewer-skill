@@ -3,8 +3,9 @@
 // The fixture is copied to the path that config.ts resolves via the default session.
 
 import { describe, test, expect, afterAll, beforeAll } from 'bun:test';
-import { copyFileSync, unlinkSync, existsSync } from 'node:fs';
-import { compareSemver, handleVersionCheck } from '../../packages/server/src/routes/version';
+import { copyFileSync, unlinkSync, existsSync, renameSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { compareSemver, handleVersionCheck, getInstalledVersion } from '../../packages/server/src/routes/version';
 import { readFindings } from '../../packages/server/src/findings';
 
 const DEFAULT_FX = '/tmp/claude-code-review-unknown.json';
@@ -78,3 +79,18 @@ describe('compareSemver', () => {
   test('equal → 0', () => expect(compareSemver('1.1.1','1.1.1')).toBe(0));
   test('different lengths', () => expect(compareSemver('1.0','1.0.1')).toBe(-1));
 });
+
+describe('getInstalledVersion catch path', () => {
+  test('returns empty string when plugin.json is missing', async () => {
+    const { PLUGIN_ROOT } = await import('../../packages/server/src/config');
+    const pluginJson = resolve(PLUGIN_ROOT, '.claude-plugin', 'plugin.json');
+    const backup = pluginJson + '.test-bak';
+    if (existsSync(pluginJson)) renameSync(pluginJson, backup);
+    try {
+      expect(getInstalledVersion()).toBe('');
+    } finally {
+      if (existsSync(backup)) renameSync(backup, pluginJson);
+    }
+  });
+});
+

@@ -12,7 +12,7 @@ export function compareSemver(a: string, b: string): number {
   }
   return 0;
 }
-function getInstalledVersion(): string {
+export function getInstalledVersion(): string {
   try {
     const p = resolve(PLUGIN_ROOT, '.claude-plugin', 'plugin.json');
     return JSON.parse(readFileSync(p, 'utf8')).version || '';
