@@ -14,3 +14,10 @@
 
 # Generated review artifacts (user's local output — not part of the plugin)
 docs/code-reviews/
+
+# Bun workspace
+node_modules/
+packages/*/node_modules/
+packages/client/dist/
+packages/client/.vite/
+bun.lockb
