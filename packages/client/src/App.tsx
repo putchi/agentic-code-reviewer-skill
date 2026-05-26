@@ -4,12 +4,14 @@ import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations } from './hooks/useAnnotations';
 import { useSettings } from './hooks/useSettings';
+import { postDecision, buildDecisionPayload } from './lib/api';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import LeftPanel from './components/LeftPanel/index';
 import DiffViewer from './components/DiffViewer/index';
 import RightPanel from './components/RightPanel/index';
 import ActionBar from './components/ActionBar';
+import CloseGuardModal from './components/ActionBar/CloseGuardModal';
 import HelpModal from './components/modals/HelpModal';
 import SettingsPane from './components/modals/SettingsPane';
 import FirstRunModal from './components/modals/FirstRunModal';
@@ -27,11 +29,15 @@ export default function App() {
   const [splitView, setSplitView] = useLocalStorage('acr-split-view', false);
   const [comments, setComments] = useLocalStorage<Record<string, string>>('acr-comments', {});
   const [checkedIds, setCheckedIds] = useLocalStorage<string[]>('acr-checked-ids', []);
+  const [dismissedIds, setDismissedIds] = useLocalStorage<string[]>('acr-dismissed-ids', []);
+  const [dismissReasons, setDismissReasons] = useLocalStorage<Record<string, string>>('acr-dismiss-reasons', {});
   const [showHelp, setShowHelp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showCloseGuard, setShowCloseGuard] = useState(false);
   const [chatPrefill, setChatPrefill] = useState('');
 
   const checkedSet = new Set(checkedIds);
+  const dismissedSet = new Set(dismissedIds);
 
   useEffect(() => {
     if (!data) return;
@@ -49,6 +55,17 @@ export default function App() {
   const counts = { CRITICAL: 0, HIGH: 0, NOTE: 0 };
   for (const f of findings) { if (f.severity in counts) counts[f.severity as keyof typeof counts]++; }
   const filtered = findings.filter(f => activeFilter === 'ALL' || f.severity === activeFilter);
+  const unaddressedCriticals = findings.filter(
+    f => f.severity === 'CRITICAL' && !checkedSet.has(f.id) && !dismissedSet.has(f.id)
+  );
+
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (unaddressedCriticals.length > 0) e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [unaddressedCriticals.length]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -88,6 +105,59 @@ export default function App() {
   function selectAll() { setCheckedIds(findings.map(f => f.id)); }
   function deselectAll() { setCheckedIds([]); }
 
+  function dismissFindings(ids: string[], reason: string) {
+    setDismissedIds(prev => Array.from(new Set([...prev, ...ids])));
+    if (reason) {
+      setDismissReasons(prev => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = reason;
+        return next;
+      });
+    }
+    setCheckedIds(prev => prev.filter(id => !ids.includes(id)));
+  }
+
+  function restoreFinding(id: string) {
+    setDismissedIds(prev => prev.filter(x => x !== id));
+    setDismissReasons(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function buildBasePayload() {
+    return buildDecisionPayload({
+      checkedIds: checkedSet,
+      comments,
+      globalComment: '',
+      lineAnnotations: annotations,
+      dismissedIds: dismissedSet,
+      dismissReasons: dismissReasons as Record<string, string>,
+    });
+  }
+
+  async function handleCloseRequest() {
+    if (unaddressedCriticals.length > 0) {
+      setShowCloseGuard(true);
+    } else {
+      await postDecision('done', buildBasePayload());
+      window.close();
+    }
+  }
+
+  async function handleCloseGuardSave() {
+    setShowCloseGuard(false);
+    await postDecision('save', buildBasePayload());
+    window.close();
+  }
+
+  async function handleCloseGuardAnyway() {
+    setShowCloseGuard(false);
+    await postDecision('done', buildBasePayload());
+    window.close();
+  }
+
   function handleCommentChange(key: string, text: string) {
     setComments(prev => ({ ...prev, [key]: text }));
   }
@@ -118,9 +188,11 @@ export default function App() {
           selectedFindingId={selectedFinding?.id ?? null}
           selectedFile={selectedFile}
           checkedIds={checkedSet}
+          dismissedIds={dismissedSet}
           onSelectFinding={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
           onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
-          onToggleCheck={toggleCheck} />
+          onToggleCheck={toggleCheck}
+          onRestoreFinding={restoreFinding} />
         <div className="center-panel">
           <DiffViewer
             file={selectedFile} diffText={diffText}
@@ -144,13 +216,23 @@ export default function App() {
         )}
       </div>
       <ActionBar
-        findings={findings} checkedIds={checkedSet}
+        checkedIds={checkedSet}
         comments={comments} globalComment={comments['_global'] || ''}
         lineAnnotations={annotations}
         autoCloseMs={settings.autoCloseMs}
-        onSelectAll={selectAll} onDeselectAll={deselectAll} />
+        dismissedIds={dismissedSet} dismissReasons={dismissReasons as Record<string, string>}
+        onSelectAll={selectAll} onDeselectAll={deselectAll}
+        onDismiss={dismissFindings}
+        onCloseRequest={handleCloseRequest} />
       {!isLoading && !settings.firstRunDone && (
         <FirstRunModal settings={settings} onSave={patch => updateSettings(patch)} />
+      )}
+      {showCloseGuard && (
+        <CloseGuardModal
+          criticalFindings={unaddressedCriticals}
+          onSaveAndClose={handleCloseGuardSave}
+          onCloseAnyway={handleCloseGuardAnyway}
+        />
       )}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       <SettingsPane

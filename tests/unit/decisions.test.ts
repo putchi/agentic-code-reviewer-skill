@@ -89,4 +89,41 @@ describe('saveMarkdown', () => {
     expect(md).toContain('## Line Annotations');
     expect(md).toContain('[COMMENT] verify');
   });
+
+  test('dismissed findings appear in Dismissed Findings section', async () => {
+    const { readFindings, saveMarkdown } = await import('../../packages/server/src/findings');
+    const data: any = readFindings();
+    data._decision = { dismissedIds: ['f002'], dismissReasons: {} };
+    const md = readFileSync(saveMarkdown(data, {}), 'utf8');
+    expect(md).toContain('## Dismissed Findings');
+    expect(md).toContain('src/worker.ts:17');
+  });
+
+  test('dismissed findings are excluded from active severity sections', async () => {
+    const { readFindings, saveMarkdown } = await import('../../packages/server/src/findings');
+    const data: any = readFindings();
+    data._decision = { dismissedIds: ['f002'], dismissReasons: {} };
+    const md = readFileSync(saveMarkdown(data, {}), 'utf8');
+    // f002 should not appear under HIGH as an active finding
+    const highSection = md.slice(md.indexOf('## HIGH'), md.indexOf('## NOTE'));
+    expect(highSection).not.toContain('Race condition on shared cache');
+    // but it should be in the dismissed section
+    expect(md.slice(md.indexOf('## Dismissed Findings'))).toContain('Race condition on shared cache');
+  });
+
+  test('dismiss reason is rendered when provided', async () => {
+    const { readFindings, saveMarkdown } = await import('../../packages/server/src/findings');
+    const data: any = readFindings();
+    data._decision = { dismissedIds: ['f001'], dismissReasons: { f001: 'false positive — input is sanitized upstream' } };
+    const md = readFileSync(saveMarkdown(data, {}), 'utf8');
+    expect(md).toContain('Reason: false positive — input is sanitized upstream');
+  });
+
+  test('Dismissed Findings section is absent when dismissedIds is empty', async () => {
+    const { readFindings, saveMarkdown } = await import('../../packages/server/src/findings');
+    const data: any = readFindings();
+    data._decision = { dismissedIds: [], dismissReasons: {} };
+    const md = readFileSync(saveMarkdown(data, {}), 'utf8');
+    expect(md).not.toContain('## Dismissed Findings');
+  });
 });

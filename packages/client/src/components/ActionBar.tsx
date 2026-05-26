@@ -1,31 +1,32 @@
 import { useState, useRef } from 'react';
-import type { Finding } from '@acr/shared';
 import type { LineAnnotation } from '@acr/shared';
-import { postDecision } from '../lib/api';
+import { postDecision, buildDecisionPayload } from '../lib/api';
+import DismissModal from './ActionBar/DismissModal';
 
 interface Props {
-  findings: Finding[];
   checkedIds: Set<string>;
   comments: Record<string, string>;
   globalComment: string;
   lineAnnotations: Record<string, LineAnnotation>;
   autoCloseMs: number;
+  dismissedIds: Set<string>;
+  dismissReasons: Record<string, string>;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onDismiss: (ids: string[], reason: string) => void;
+  onCloseRequest: () => void;
 }
 
-export default function ActionBar({ findings, checkedIds, comments, globalComment, lineAnnotations, autoCloseMs, onSelectAll, onDeselectAll }: Props) {
+export default function ActionBar({
+  checkedIds, comments, globalComment, lineAnnotations, autoCloseMs,
+  dismissedIds, dismissReasons, onSelectAll, onDeselectAll, onDismiss, onCloseRequest,
+}: Props) {
   const [status, setStatus] = useState('');
+  const [showDismiss, setShowDismiss] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function buildPayload() {
-    const selectedIds = Array.from(checkedIds);
-    const commentMap: Record<string, string> = {};
-    for (const [k, v] of Object.entries(comments)) {
-      if (k.startsWith('_comment_') && v) commentMap[k.slice(9)] = v;
-    }
-    const gComment = comments['_global'] || globalComment;
-    return { selectedIds, comments: commentMap, globalComment: gComment, lineAnnotations };
+    return buildDecisionPayload({ checkedIds, comments, globalComment, lineAnnotations, dismissedIds, dismissReasons });
   }
 
   function startCountdown() {
@@ -70,36 +71,56 @@ export default function ActionBar({ findings, checkedIds, comments, globalCommen
     }
   }
 
-  async function handleDone() {
-    setStatus('Done');
-    await postDecision('done', buildPayload());
-    startCountdown();
+
+  function handleDismissConfirm(reason: string) {
+    onDismiss(Array.from(checkedIds), reason);
+    setShowDismiss(false);
   }
 
   const isCountingDown = countdownRef.current !== null;
 
   return (
-    <div className="action-bar">
-      <div className="sel-controls">
-        <button className="btn btn-sm" onClick={onSelectAll}>Select All</button>
-        <button className="btn btn-sm" onClick={onDeselectAll}>Deselect All</button>
+    <>
+      <div className="action-bar">
+        <div className="sel-controls">
+          <button className="btn btn-sm" onClick={onSelectAll}>Select All</button>
+          <button className="btn btn-sm" onClick={onDeselectAll}>Deselect All</button>
+        </div>
+        <div className="action-spacer" />
+        {status && (
+          <span className="status-msg">
+            {status}
+            {isCountingDown && (
+              <button className="btn btn-sm" style={{ marginLeft: 8, fontSize: 11 }} onClick={cancelCountdown}>
+                Cancel
+              </button>
+            )}
+          </span>
+        )}
+        <button className="btn btn-primary" disabled={checkedIds.size === 0} onClick={handleImplement}
+          title="Send selected findings to the implementation plan and close">
+          Implement
+        </button>
+        <button className="btn btn-dismiss" disabled={checkedIds.size === 0} onClick={() => setShowDismiss(true)}
+          title="Mark selected findings as won't-fix or false positive">
+          Dismiss
+        </button>
+        <button className="btn btn-outline" onClick={handleSave}
+          title="Save findings and decisions to a markdown file — review stays open">
+          Save
+        </button>
+        <button className="btn btn-ghost" onClick={onCloseRequest}
+          title="Exit without saving">
+          Close
+        </button>
       </div>
-      <div className="action-spacer" />
-      {status && (
-        <span className="status-msg">
-          {status}
-          {isCountingDown && (
-            <button className="btn btn-sm" style={{ marginLeft: 8, fontSize: 11 }} onClick={cancelCountdown}>
-              Cancel
-            </button>
-          )}
-        </span>
+      {showDismiss && (
+        <DismissModal
+          count={checkedIds.size}
+          onConfirm={handleDismissConfirm}
+          onCancel={() => setShowDismiss(false)}
+        />
       )}
-      <button className="btn btn-primary" disabled={checkedIds.size === 0} onClick={handleImplement}>
-        Implement
-      </button>
-      <button className="btn" onClick={handleSave}>Save</button>
-      <button className="btn" onClick={handleDone}>Done</button>
-    </div>
+    </>
   );
 }
