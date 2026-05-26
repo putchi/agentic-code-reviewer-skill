@@ -56,16 +56,7 @@ Or with an explicit platform flag to skip the prompt:
 curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform claude
 ```
 
-**Option B — install from the published repo:**
-
-The repo is a self-hosting marketplace, so register it first, then install the plugin from it:
-
-```
-/plugin marketplace add putchi/agentic-code-reviewer-skill
-/plugin install agentic-code-reviewer@agentic-code-reviewer-skill
-```
-
-**Option C — local clone** (for local development):
+**Option B — local clone** (for local development):
 
 ```
 git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
