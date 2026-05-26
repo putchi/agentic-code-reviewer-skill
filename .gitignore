@@ -11,3 +11,6 @@
 .remember/
 .superpowers/
 .playwright-screenshots/
+
+# Generated review artifacts (user's local output — not part of the plugin)
+docs/code-reviews/
