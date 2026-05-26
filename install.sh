@@ -417,6 +417,13 @@ install_claude_plugin() {
   fi
 
   copy_repo_tree "$marketplace_dir"
+
+  # Remove stale versioned cache dirs so old manifests don't cause validation errors on reload.
+  local cache_plugin_root="$plugin_root/cache/agentic-code-reviewer-skill/agentic-code-reviewer"
+  if [ -d "$cache_plugin_root" ]; then
+    find "$cache_plugin_root" -mindepth 1 -maxdepth 1 -type d ! -name "$plugin_version" -exec rm -rf {} +
+  fi
+
   copy_repo_tree "$cache_dir"
 
   download_server_binary "$marketplace_dir"
