@@ -11,22 +11,13 @@ brew tap oven-sh/bun
 brew install bun
 ```
 
-After a fresh clone, install all workspace dependencies:
-
-```bash
-bun install
-```
-
-Do **not** use `npm install` or `yarn` — the monorepo uses Bun's `workspace:*` protocol which only Bun understands.
+After a fresh clone, install all workspace dependencies with `bun install`. Do **not** use `npm install` or `yarn` — the monorepo uses Bun's `workspace:*` protocol which only Bun understands.
 
 ## Commands
 
 All commands run from the repo root using `/opt/homebrew/bin/bun` (the system Bun; `~/.bun/bin/bun` hangs on install).
 
 ```bash
-# Install workspace dependencies
-bun install
-
 # Run all tests
 bun test tests/
 
