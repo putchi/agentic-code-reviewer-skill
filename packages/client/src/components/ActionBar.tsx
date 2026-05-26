@@ -1,12 +1,12 @@
 import { useState, useRef } from 'react';
 import type { LineAnnotation } from '@acr/shared';
-import { postDecision, buildDecisionPayload } from '../lib/api';
+import { buildDecisionPayload } from '@acr/shared';
+import { postDecision } from '../lib/api';
 import DismissModal from './ActionBar/DismissModal';
 
 interface Props {
   checkedIds: Set<string>;
   comments: Record<string, string>;
-  globalComment: string;
   lineAnnotations: Record<string, LineAnnotation>;
   autoCloseMs: number;
   dismissedIds: Set<string>;
@@ -18,7 +18,7 @@ interface Props {
 }
 
 export default function ActionBar({
-  checkedIds, comments, globalComment, lineAnnotations, autoCloseMs,
+  checkedIds, comments, lineAnnotations, autoCloseMs,
   dismissedIds, dismissReasons, onSelectAll, onDeselectAll, onDismiss, onCloseRequest,
 }: Props) {
   const [status, setStatus] = useState('');
@@ -26,7 +26,7 @@ export default function ActionBar({
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function buildPayload() {
-    return buildDecisionPayload({ checkedIds, comments, globalComment, lineAnnotations, dismissedIds, dismissReasons });
+    return buildDecisionPayload({ checkedIds, comments, lineAnnotations, dismissedIds, dismissReasons });
   }
 
   function startCountdown() {

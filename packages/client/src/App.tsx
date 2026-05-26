@@ -4,7 +4,8 @@ import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations } from './hooks/useAnnotations';
 import { useSettings } from './hooks/useSettings';
-import { postDecision, buildDecisionPayload } from './lib/api';
+import { postDecision } from './lib/api';
+import { buildDecisionPayload } from '@acr/shared';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import LeftPanel from './components/LeftPanel/index';
@@ -106,15 +107,17 @@ export default function App() {
   function deselectAll() { setCheckedIds([]); }
 
   function dismissFindings(ids: string[], reason: string) {
+    const idSet = new Set(ids);
     setDismissedIds(prev => Array.from(new Set([...prev, ...ids])));
-    if (reason) {
-      setDismissReasons(prev => {
-        const next = { ...prev };
-        for (const id of ids) next[id] = reason;
-        return next;
-      });
-    }
-    setCheckedIds(prev => prev.filter(id => !ids.includes(id)));
+    setDismissReasons(prev => {
+      const next = { ...prev };
+      for (const id of ids) {
+        if (reason) next[id] = reason;
+        else delete next[id];
+      }
+      return next;
+    });
+    setCheckedIds(prev => prev.filter(id => !idSet.has(id)));
   }
 
   function restoreFinding(id: string) {
@@ -130,10 +133,9 @@ export default function App() {
     return buildDecisionPayload({
       checkedIds: checkedSet,
       comments,
-      globalComment: '',
       lineAnnotations: annotations,
       dismissedIds: dismissedSet,
-      dismissReasons: dismissReasons as Record<string, string>,
+      dismissReasons,
     });
   }
 
@@ -217,10 +219,10 @@ export default function App() {
       </div>
       <ActionBar
         checkedIds={checkedSet}
-        comments={comments} globalComment={comments['_global'] || ''}
+        comments={comments}
         lineAnnotations={annotations}
         autoCloseMs={settings.autoCloseMs}
-        dismissedIds={dismissedSet} dismissReasons={dismissReasons as Record<string, string>}
+        dismissedIds={dismissedSet} dismissReasons={dismissReasons}
         onSelectAll={selectAll} onDeselectAll={deselectAll}
         onDismiss={dismissFindings}
         onCloseRequest={handleCloseRequest} />
