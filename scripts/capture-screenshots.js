@@ -124,8 +124,9 @@ waitForServer(function(err) {
   const scriptPath = '/tmp/acr-pw-capture.js';
   fs.writeFileSync(scriptPath, playwrightCaptureScript(serverUrl, SCREENSHOTS_DIR));
 
-  // Install chromium
-  var installResult = spawnSync('npx', ['--yes', 'playwright', 'install', 'chromium'], {
+  // Install playwright and chromium into a temp dir, then run the capture script
+  const tmpModules = '/tmp/acr-pw-modules';
+  var installResult = spawnSync('npm', ['install', '--prefix', tmpModules, 'playwright'], {
     stdio: 'inherit',
     timeout: 120000
   });
@@ -135,11 +136,22 @@ waitForServer(function(err) {
     process.exit(1);
   }
 
-  // Run the capture script
+  var browserInstall = spawnSync(
+    path.join(tmpModules, 'node_modules', '.bin', 'playwright'),
+    ['install', 'chromium'],
+    { stdio: 'inherit', timeout: 120000 }
+  );
+  if (browserInstall.status !== 0) {
+    console.error('chromium browser install failed');
+    serverProc.kill();
+    process.exit(1);
+  }
+
+  // Run the capture script with the temp node_modules on NODE_PATH
   var captureResult = spawnSync(process.execPath, [scriptPath], {
     stdio: 'inherit',
     timeout: 60000,
-    env: Object.assign({}, process.env)
+    env: Object.assign({}, process.env, { NODE_PATH: path.join(tmpModules, 'node_modules') })
   });
 
   if (captureResult.status !== 0) {

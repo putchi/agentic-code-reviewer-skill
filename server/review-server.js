@@ -216,6 +216,7 @@ function getHTML() {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agentic Code Review</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -289,33 +290,48 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   padding: 5px 12px;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 2px;
   flex-shrink: 0;
 }
 .toolstrip-group {
   display: flex;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
+  gap: 1px;
+  margin-right: 4px;
 }
 .toolstrip-btn {
-  padding: 4px 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 3px 7px;
+  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
-  border-right: 1px solid var(--border);
-  transition: all .15s;
   white-space: nowrap;
+  user-select: none;
+  transition: color 120ms ease-out, background 120ms ease-out;
 }
-.toolstrip-btn:last-child { border-right: none; }
-.toolstrip-btn:hover { background: var(--surface); color: var(--text); }
-.toolstrip-btn.active { background: var(--accent); color: var(--bg3); font-weight: 600; }
+.toolstrip-btn .ts-label { display: none; }
+.toolstrip-btn:hover .ts-label,
+.toolstrip-btn.active .ts-label { display: inline; }
+.toolstrip-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.toolstrip-btn:active { transform: scale(0.97); }
+.toolstrip-btn.active {
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+}
 .toolstrip-help {
-  margin-left: auto;
+  position: absolute;
+  right: 12px;
   font-size: 11px;
   color: var(--text-dim);
   cursor: pointer;
@@ -602,14 +618,26 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
       </div>
       <div class="annotation-toolstrip" id="annotation-toolstrip">
         <div class="toolstrip-group">
-          <button class="toolstrip-btn active" id="ts-select" title="Drag to select text">&#8286; Select</button>
-          <button class="toolstrip-btn" id="ts-pinpoint" title="Click to target a line">&#8853; Pinpoint</button>
+          <button class="toolstrip-btn active" id="ts-select" title="Drag to select text">
+            <i class="fa-solid fa-mouse-pointer ts-icon"></i><span class="ts-label"> Select</span>
+          </button>
+          <button class="toolstrip-btn" id="ts-pinpoint" title="Pinpoint: click to target a line">
+            <i class="fa-solid fa-crosshairs ts-icon"></i><span class="ts-label"> Pinpoint</span>
+          </button>
         </div>
         <div class="toolstrip-group">
-          <button class="toolstrip-btn active" id="ts-markup" title="Select then choose action">&#9998; Markup</button>
-          <button class="toolstrip-btn" id="ts-comment" title="Select then comment immediately">&#128172; Comment</button>
-          <button class="toolstrip-btn" id="ts-redline" title="Select to mark for deletion">&#128683; Redline</button>
-          <button class="toolstrip-btn" id="ts-label" title="Select then apply a quick label">&#9889; Label</button>
+          <button class="toolstrip-btn active" id="ts-markup" title="Markup: select then choose action">
+            <i class="fa-solid fa-pen ts-icon"></i><span class="ts-label"> Markup</span>
+          </button>
+          <button class="toolstrip-btn" id="ts-comment" title="Select then comment immediately">
+            <i class="fa-solid fa-comment ts-icon"></i><span class="ts-label"> Comment</span>
+          </button>
+          <button class="toolstrip-btn" id="ts-redline" title="Redline: select to mark for deletion">
+            <i class="fa-solid fa-ban ts-icon"></i><span class="ts-label"> Redline</span>
+          </button>
+          <button class="toolstrip-btn" id="ts-label" title="Label: select then apply a quick label">
+            <i class="fa-solid fa-tag ts-icon"></i><span class="ts-label"> Label</span>
+          </button>
         </div>
         <span class="toolstrip-help" id="ts-help">how does this work?</span>
       </div>
