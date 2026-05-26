@@ -26,7 +26,7 @@ On Claude Code there's an extra layer: a Stop hook that blocks the session from 
 3. **Synthesizer pass.** Send the diff + all 5 raw outputs to the `synthesizer` agent. It applies judge rules (evidence required, semantic dedupe, contradiction resolution, severity re-rated by blast radius, drop speculation) and emits the final report.
 4. **Print verdict.** The Synthesizer's output is the final report — Verdict / CRITICAL / HIGH / NOTES / Summary. No further aggregation.
 5. **Completion signal.** Touch `/tmp/claude-code-review-${SESSION_ID}.done` and emit `<!-- AGENTIC-REVIEW-COMPLETE -->`. On Claude Code these unblock the Stop hook; on other platforms they are harmless no-ops.
-6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch a local Node.js server (`server/review-server.js`) that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split), per-finding comment cards plus global notes. Click **Implement Selected** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Done** to close without action. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
+6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch a local Node.js server (`server/review-server.js`) that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split) with an annotation toolstrip (Select/Pinpoint + Markup/Comment/Redline/Label modes), per-finding comment cards, global notes, and a chat panel for asking Claude questions about the diff. Click **Implement Selected** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Done** to close without action. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
 
 ## Platform support matrix
 
@@ -118,11 +118,13 @@ Without this, parallel subagent dispatch will fail.
 
 ### Copilot CLI
 
-Manual install: clone the repo and copy `skills/agentic-code-reviewer/`, `agents/`, `references/`, and `server/` into your Copilot CLI skills directory.
+The `install.sh` does not have a Copilot CLI path. Manual install: clone the repo and symlink or copy the directories your Copilot CLI skills loader expects (`skills/agentic-code-reviewer/`, `agents/`, `references/`, `server/`). Tool-name mapping is in [`references/platform-tools.md`](references/platform-tools.md).
 
+```bash
+git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 ```
-git clone git@github.com-secondary:putchi/agentic-code-reviewer-skill.git
-```
+
+> ⚠ Copilot CLI support is untested. The interactive review web UI requires `node` v18+ on the host machine.
 
 ## Usage
 
@@ -180,12 +182,23 @@ On Codex and Copilot CLI you are responsible for invoking the skill before endin
 
 For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 Synthesizer pass and takes roughly **30–90 seconds** at an estimated **~$0.08–$0.25**. Smaller diffs are proportionally cheaper. Only the Synthesizer runs on Opus; 4 reviewers run on Sonnet and 1 (test-coverage) runs on Haiku (see [the review council](#the-review-council)).
 
+## Screenshots
+
+### Full review UI
+![Full review UI](docs/screenshots/review-ui.png)
+
+### Annotation toolstrip
+![Annotation toolstrip with Comment mode active and diff loaded](docs/screenshots/annotation.png)
+
+### Chat panel
+![Chat panel with a question typed about the diff](docs/screenshots/chat-panel.png)
+
 ## Project layout
 
 ```
 .
-├── .claude-plugin/plugin.json     # Claude Code manifest
-├── agents/                        # 5 reviewers + synthesizer (prompts are portable)
+├── .claude-plugin/plugin.json          # Claude Code manifest (version, commands pointer)
+├── agents/                             # 5 reviewers + synthesizer (prompts are portable)
 │   ├── semantic-analyzer.md
 │   ├── security-scanner.md
 │   ├── architecture-reviewer.md
@@ -193,16 +206,21 @@ For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 
 │   ├── senior-dev-reviewer.md
 │   └── synthesizer.md
 ├── commands/agentic-code-reviewer.md   # Claude Code slash command
+├── docs/
+│   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
+│   └── screenshots/                    # UI screenshots for README
 ├── hooks/                              # Claude Code exclusive (Stop-event gate)
 │   ├── hooks.json
 │   ├── code-review-gate.sh
 │   └── check-update.sh
 ├── references/
-│   └── platform-tools.md          # Claude Code / Codex / Copilot CLI mapping
+│   └── platform-tools.md              # Claude Code / Codex / Copilot CLI tool mapping
+├── scripts/
+│   └── capture-screenshots.js         # Playwright screenshot capture for docs
 ├── server/
-│   └── review-server.js           # Node.js stdlib-only HTTP server + embedded HTML UI
+│   └── review-server.js               # Node.js stdlib-only HTTP server + embedded HTML UI
 ├── skills/agentic-code-reviewer/SKILL.md
-└── install.sh                     # Installer for Claude Code plugin + Codex skill
+└── install.sh                          # Installer for Claude Code plugin + Codex skill
 ```
 
 ## License
