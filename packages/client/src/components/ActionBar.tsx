@@ -31,6 +31,7 @@ export default function ActionBar({
 
   function startCountdown() {
     if (autoCloseMs <= 0) return;
+    if (countdownRef.current) clearInterval(countdownRef.current);
     let remaining = Math.round(autoCloseMs / 1000);
     setStatus(`Closing in ${remaining}… `);
     countdownRef.current = setInterval(() => {
@@ -75,6 +76,7 @@ export default function ActionBar({
   function handleDismissConfirm(reason: string) {
     onDismiss(Array.from(checkedIds), reason);
     setShowDismiss(false);
+    startCountdown();
   }
 
   const isCountingDown = countdownRef.current !== null;

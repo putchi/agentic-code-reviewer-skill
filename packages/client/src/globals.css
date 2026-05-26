@@ -92,6 +92,7 @@ html, body {
   align-items: center; justify-content: center; gap: 2px; flex-shrink: 0;
 }
 .toolstrip-group { display: flex; gap: 1px; margin-right: 4px; }
+.toolstrip-group + .toolstrip-group { margin-left: 12px; }
 .toolstrip-btn {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px; font-weight: 400; padding: 3px 7px; border-radius: 6px;
