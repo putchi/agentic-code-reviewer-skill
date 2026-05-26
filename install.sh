@@ -161,6 +161,44 @@ copy_repo_tree() {
   )
 }
 
+download_server_binary() {
+  local target_dir="$1"
+  local plugin_json="$target_dir/.claude-plugin/plugin.json"
+  local tag
+
+  if [ -f "$plugin_json" ]; then
+    tag="v$(json_value "$plugin_json" version 2>/dev/null || true)"
+  fi
+  if [ -z "${tag:-}" ] || [ "$tag" = "v" ]; then
+    tag="latest"
+  fi
+
+  local platform
+  case "$(uname -s)" in
+    Darwin)
+      case "$(uname -m)" in
+        arm64) platform="darwin-arm64" ;;
+        *)     platform="darwin-x64" ;;
+      esac ;;
+    Linux) platform="linux-x64" ;;
+    *)
+      echo "Warning: unsupported platform — server binary not downloaded. Run 'bun install && bun run build && bun run compile' manually." >&2
+      return 0 ;;
+  esac
+
+  local binary_name="review-server-${platform}"
+  local base_url="https://github.com/putchi/agentic-code-reviewer-skill/releases/download/${tag}"
+
+  echo "Downloading server binary (${platform}, ${tag})…"
+  mkdir -p "$target_dir/dist"
+  if curl -fsSL "${base_url}/${binary_name}" -o "$target_dir/dist/review-server" 2>/dev/null; then
+    chmod +x "$target_dir/dist/review-server"
+    echo "Server binary installed."
+  else
+    echo "Warning: could not download server binary (release ${tag} may not exist yet). Run 'bun install && bun run build && bun run compile' manually." >&2
+  fi
+}
+
 codex_is_installed() {
   [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1
 }
@@ -380,6 +418,9 @@ install_claude_plugin() {
 
   copy_repo_tree "$marketplace_dir"
   copy_repo_tree "$cache_dir"
+
+  download_server_binary "$marketplace_dir"
+  download_server_binary "$cache_dir"
 
   chmod +x "$marketplace_dir/hooks/code-review-gate.sh" "$marketplace_dir/hooks/check-update.sh" 2>/dev/null || true
   chmod +x "$cache_dir/hooks/code-review-gate.sh" "$cache_dir/hooks/check-update.sh" 2>/dev/null || true

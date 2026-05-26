@@ -1,0 +1,41 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+            bun_target: bun-darwin-arm64
+          - os: macos-13
+            target: darwin-x64
+            bun_target: bun-darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+            bun_target: bun-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+      - name: Compile binary
+        run: |
+          BUN_TARGET="${{ matrix.bun_target }}"
+          OUT_FILE="dist/review-server-${{ matrix.target }}"
+          bun build packages/server/src/index.ts --compile "--target=${BUN_TARGET}" "--outfile=${OUT_FILE}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-server-${{ matrix.target }}
+          path: dist/review-server-${{ matrix.target }}
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: 'review-server-*/*'
