@@ -1,0 +1,17 @@
+{
+  "verdict": "APPROVE WITH CHANGES — 1 CRITICAL must be addressed",
+  "branch": "feat/example",
+  "sessionId": "fixture-sample",
+  "timestamp": "2026-05-26T10:00:00Z",
+  "summary": "SQL injection in db.ts and a race condition in worker.ts.",
+  "findings": [
+    {"id":"f001","severity":"CRITICAL","file":"src/db.ts","line":42,"location":"src/db.ts:42","finding":"Unsanitized user input passed to query()","reasoning":"userId interpolated directly into SQL.","evidence":"query(`SELECT * FROM users WHERE id = ${userId}`)"},
+    {"id":"f002","severity":"HIGH","file":"src/worker.ts","line":17,"location":"src/worker.ts:17","finding":"Race condition on shared cache","reasoning":"Two async handlers write without lock."},
+    {"id":"f003","severity":"NOTE","file":"src/utils.ts","line":5,"location":"src/utils.ts:5","finding":"Function name `doStuff` is not descriptive"}
+  ],
+  "files": [
+    {"path":"src/db.ts","diff":"@@ -40,4 +40,6 @@\n context\n-old\n+query(`SELECT * FROM users WHERE id = ${userId}`)"},
+    {"path":"src/worker.ts","diff":"@@ -15,4 +15,6 @@\n context\n+cache.value = result;"},
+    {"path":"src/utils.ts","diff":"@@ -3,3 +3,5 @@\n+function doStuff() {}"}
+  ]
+}

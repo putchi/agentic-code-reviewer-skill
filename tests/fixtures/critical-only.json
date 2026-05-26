@@ -1,0 +1,12 @@
+{
+  "verdict":"BLOCK — 2 CRITICAL findings",
+  "branch":"feat/crit",
+  "sessionId":"fixture-crit",
+  "timestamp":"2026-05-26T10:00:00Z",
+  "summary":"",
+  "findings":[
+    {"id":"c001","severity":"CRITICAL","file":"a.ts","line":1,"location":"a.ts:1","finding":"X"},
+    {"id":"c002","severity":"CRITICAL","file":"b.ts","line":2,"location":"b.ts:2","finding":"Y"}
+  ],
+  "files":[{"path":"a.ts","diff":"@@ -0,0 +1 @@\n+x"},{"path":"b.ts","diff":"@@ -0,0 +1 @@\n+y"}]
+}
