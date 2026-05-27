@@ -13,6 +13,8 @@ brew install bun
 
 After a fresh clone, install all workspace dependencies with `bun install`. Do **not** use `npm install` or `yarn` — the monorepo uses Bun's `workspace:*` protocol which only Bun understands.
 
+Runtime review orchestration also requires `bash`, `python3`, `git`, and the `claude` CLI with `--print` support. `/pr-review` additionally requires `gh`.
+
 ## Commands
 
 All commands run from the repo root using `/opt/homebrew/bin/bun` (the system Bun; `~/.bun/bin/bun` hangs on install).
@@ -66,21 +68,21 @@ The server binary is compiled with `bun build --compile`. The built client HTML 
 | Method | Path | Handler |
 |--------|------|---------|
 | GET | `/` | Serve embedded client HTML |
-| GET | `/api/review` | Load findings from the session JSON file |
+| GET | `/api/review` | Load review data from `--run-dir` synthesis/context/diff files, with legacy `/tmp/*.json` fallback |
 | GET | `/api/version-check` | Compare installed vs. latest GitHub version |
-| GET | `/api/settings` | Read `settings.json` from plugin root |
+| GET | `/api/settings` | Read persisted UI settings |
 | GET | `/api/version` | Read version from `.claude-plugin/plugin.json` |
 | POST | `/api/settings` | Persist settings patch |
 | POST | `/api/chat/session` | Create a new Claude SDK streaming session |
 | POST | `/api/chat/query` | Send a message to an active chat session |
 | POST | `/api/chat/abort` | Abort an in-flight chat stream |
-| POST | `/api/implement` | Write `implement` decision to `/tmp/*.decision` |
-| POST | `/api/save` | Write markdown review to `docs/code-reviews/` |
-| POST | `/api/done` | Write `done` decision and touch the `.done` sentinel |
+| POST | `/api/implement` | Write implementation decisions, save markdown, touch `.done`, and try auto-resume |
+| POST | `/api/save` | Write `decisions.json`, compatibility `/tmp/*.decision`, and markdown review |
+| POST | `/api/done` | Write final decisions, touch `.done`, and try auto-resume |
 
-`config.ts` reads CLI args (`--session`, `--findings-file`, `--save-dir`, `--port`) and derives all file paths. The session-scoped tmp files are `/tmp/claude-code-review-${sessionId}.{json,decision,done,blocked}`.
+`config.ts` reads CLI args (`--session`, `--run-dir`, `--findings-file`, `--save-dir`, `--port`, `--platform`) and derives all file paths. Current runs prefer `.claude/review-runs/<run-id>/{synthesis.json,context.json,diff.txt,run.json,decisions.json}`. The session-scoped `/tmp/claude-code-review-${sessionId}.{json,decision,done,blocked}` files remain for legacy compatibility and the Stop hook.
 
-`settings.ts` persists user preferences (`autoCloseMs`, `chatModel`, `firstRunDone`) to `settings.json` in the plugin root directory.
+`settings.ts` persists user preferences (`autoCloseMs`, `chatModel`, `firstRunDone`) to `~/.claude/agentic-code-reviewer/settings.json` by default. `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location; legacy plugin-root `settings.json` is migrated on read.
 
 ### Client (`packages/client/src/`)
 
@@ -88,7 +90,7 @@ Single-page React app. `main.tsx` → `App.tsx` → three-panel layout:
 - **Left panel** — findings list with severity filters (`FilterBar`) and per-finding detail (`LeftPanel/`)
 - **Center** — unified/split diff viewer with annotation toolstrip (`DiffViewer/`)
 - **Right panel** (collapsible, persisted in localStorage) — chat panel for asking Claude questions about the diff (`RightPanel/`)
-- **Action bar** — Implement / Save / Done buttons (`ActionBar/`)
+- **Action bar** — Implement / Dismiss / Save decisions / Close controls (`ActionBar/`)
 - **Modals** — first-run, settings, critical-findings guard (`modals/`)
 
 Vite dev server proxies `/api` to `:7788`. For production the entire SPA is bundled to a single `index.html` by `vite-plugin-singlefile`.
@@ -103,11 +105,13 @@ The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. T
 
 The slash commands are lightweight launchers. `/agentic-code-reviewer` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, starts `scripts/orchestrator.py` with `nohup`, and returns immediately. The five reviewers run as separate non-interactive `claude --print --output-format json` processes through `scripts/run-reviewer.sh`; `scripts/run-synthesizer.sh` runs only after all reviewer result files exist and validate. The Bun server is launched with `--run-dir <path>` and reads `synthesis.json`; decisions are written to `decisions.json`. The `/tmp/claude-code-review-*` files remain only for compatibility.
 
-After UI decisions are saved, the user runs `/review-resume <run-id>`. That command reads `synthesis.json` and `decisions.json`, then implements only findings marked `ask_claude_to_implement` or `accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and reports `create_follow_up_task` items.
+After UI decisions are saved, `packages/server/src/auto-resume.ts` tries to resume the active host session: Claude Code via `CLAUDE_SESSION_ID` and `claude --resume`, Codex via `CODEX_THREAD_ID` and `codex exec resume`. Manual fallback is `/review-resume <run-id>`. That command reads `synthesis.json` and `decisions.json`, then implements only findings marked `ask_claude_to_implement` or `accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and reports `create_follow_up_task` items.
 
-**Session ID:** `CLAUDE_SESSION_ID` when set (Claude Code Stop hook integration); falls back to a 12-char random hex string for standalone invocations (VSCode extension, `/pr-review`, etc.) — never the literal string `unknown`.
+**Run ID / session ID:** `scripts/orchestrator.sh` creates a UTC timestamp + random hex run id and passes it as `--session` to the UI server. Direct legacy server invocations without `--session` still default to `unknown`, so new launch paths should always pass the run id explicitly.
 
-**Plugin root resolution** tries three paths in order: `CLAUDE_PLUGIN_ROOT` env var → `~/.claude/plugins/cache/agentic-code-reviewer` → `~/.codex/skills/agentic-code-reviewer`. Exits with an error if none exist.
+**Plugin root resolution** tries these paths in order: `CLAUDE_PLUGIN_ROOT` env var → current repo root when `.claude-plugin/plugin.json` exists → legacy `~/.claude/plugins/cache/agentic-code-reviewer` → `~/.claude/plugins/marketplaces/agentic-code-reviewer-skill` → `~/.codex/skills/agentic-code-reviewer` → persistent fallback `~/.claude/agentic-code-reviewer`.
+
+**Codex repo instructions:** Codex's equivalent to `CLAUDE.md` is `AGENTS.md`. This repo keeps detailed maintenance guidance in `CLAUDE.md`; `AGENTS.md` should remain a small Codex entry point that tells Codex to follow `CLAUDE.md` to avoid drifting duplicate docs.
 
 ### Release
 

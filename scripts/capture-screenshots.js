@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Captures screenshots of the review UI using Playwright (zero-install via npx).
+// Captures screenshots of the review UI using Playwright.
 // Usage: node scripts/capture-screenshots.js
 
 const { spawnSync, spawn } = require('child_process');
@@ -10,14 +10,18 @@ const path = require('path');
 const fs = require('fs');
 
 const SAMPLE_JSON = '/tmp/acr-screenshot-sample.json';
+const SETTINGS_JSON = '/tmp/acr-screenshot-settings.json';
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'docs', 'screenshots');
-const SERVER_SCRIPT = path.join(__dirname, '..', 'server', 'review-server.js');
+const SERVER_ENTRY = path.join(__dirname, '..', 'packages', 'server', 'src', 'index.ts');
+const BUN_BIN = process.env.BUN_BIN || (fs.existsSync('/opt/homebrew/bin/bun') ? '/opt/homebrew/bin/bun' : 'bun');
 
 const sampleData = {
   verdict: "Two issues found: one HIGH severity SQL injection risk and one NOTE about missing test coverage. The overall structure of the changes is clean.",
   branch: "feature/example",
   sessionId: "screenshot-session",
+  runId: "screenshot-session",
   timestamp: new Date().toISOString(),
+  resumeCommand: "/review-resume screenshot-session",
   summary: "Review complete. Address the SQL injection before merge.",
   findings: [
     {
@@ -54,15 +58,25 @@ const sampleData = {
 
 fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 fs.writeFileSync(SAMPLE_JSON, JSON.stringify(sampleData, null, 2));
+fs.writeFileSync(SETTINGS_JSON, JSON.stringify({
+  autoCloseMs: 0,
+  chatModel: "claude-sonnet-4-6",
+  firstRunDone: true
+}, null, 2));
 console.log('Sample data written to', SAMPLE_JSON);
 
 // Start the review server on a fixed port
-const serverProc = spawn(process.execPath, [
-  SERVER_SCRIPT,
+const serverProc = spawn(BUN_BIN, [
+  SERVER_ENTRY,
   '--findings-file', SAMPLE_JSON,
-  '--session', 'screenshot',
-  '--port', '7891'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
+  '--session', 'screenshot'
+], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: Object.assign({}, process.env, {
+    ACR_NO_OPEN: '1',
+    ACR_SETTINGS_FILE: SETTINGS_JSON
+  })
+});
 
 let serverUrl = null;
 
@@ -97,19 +111,28 @@ const playwrightCaptureScript = function(url, outDir) {
     "  const browser = await chromium.launch();",
     "  const page = await browser.newPage();",
     "  await page.setViewportSize({ width: 1440, height: 900 });",
+    "  await page.addInitScript(() => { localStorage.clear(); });",
     "  await page.goto('" + url + "');",
-    "  await page.waitForSelector('#tab-findings .finding-item', { timeout: 8000 });",
+    "  await page.waitForSelector('.finding', { timeout: 8000 });",
+    "  await page.click('.finding');",
+    "  await page.click('.finding .checkbox');",
+    "  await page.waitForSelector('.diff-view table, .diff-view .diff-table', { timeout: 8000 }).catch(() => {});",
+    "  await page.click('.rp [role=tab]:has-text(\"Comments\")');",
+    "  await page.fill('.cmt__textarea', 'Prioritize this fix before merge.');",
     "  await page.waitForTimeout(500);",
     "  await page.screenshot({ path: '" + outDir + "/review-ui.png' });",
     "  console.log('Screenshot 1: review-ui.png');",
-    "  await page.click('#tab-findings .finding-item');",
+    "  await page.click('.annotation-toolstrip button:has-text(\"Pinpoint\")');",
+    "  await page.click('.annotation-toolstrip button:has-text(\"Comment\")');",
+    "  await page.click('.diff-view tr[data-line-right], .diff-view tr[data-line-left]');",
+    "  await page.waitForSelector('.comment-popover, .popover, textarea', { timeout: 3000 }).catch(() => {});",
     "  await page.waitForTimeout(400);",
-    "  await page.click('#ts-comment');",
-    "  await page.waitForTimeout(200);",
     "  await page.screenshot({ path: '" + outDir + "/annotation.png' });",
     "  console.log('Screenshot 2: annotation.png');",
-    "  await page.fill('#chat-input', 'What is the impact of the SQL injection on line 42?');",
-    "  await page.waitForTimeout(200);",
+    "  await page.keyboard.press('Escape').catch(() => {});",
+    "  await page.click('.rp [role=tab]:has-text(\"Ask AI\")');",
+    "  await page.fill('.chat textarea', 'What is the impact of the SQL injection on line 42?');",
+    "  await page.waitForTimeout(400);",
     "  await page.screenshot({ path: '" + outDir + "/chat-panel.png' });",
     "  console.log('Screenshot 3: chat-panel.png');",
     "  await browser.close();",
@@ -124,16 +147,19 @@ waitForServer(function(err) {
   const scriptPath = '/tmp/acr-pw-capture.js';
   fs.writeFileSync(scriptPath, playwrightCaptureScript(serverUrl, SCREENSHOTS_DIR));
 
-  // Install playwright and chromium into a temp dir, then run the capture script
+  // Install Playwright into a temp dir when it is not already present, then run the capture script.
   const tmpModules = '/tmp/acr-pw-modules';
-  var installResult = spawnSync('npm', ['install', '--prefix', tmpModules, 'playwright'], {
-    stdio: 'inherit',
-    timeout: 120000
-  });
-  if (installResult.status !== 0) {
-    console.error('playwright install failed');
-    serverProc.kill();
-    process.exit(1);
+  const playwrightModule = path.join(tmpModules, 'node_modules', 'playwright');
+  if (!fs.existsSync(playwrightModule)) {
+    var installResult = spawnSync('npm', ['install', '--prefix', tmpModules, 'playwright'], {
+      stdio: 'inherit',
+      timeout: 120000
+    });
+    if (installResult.status !== 0) {
+      console.error('playwright install failed');
+      serverProc.kill();
+      process.exit(1);
+    }
   }
 
   var browserInstall = spawnSync(

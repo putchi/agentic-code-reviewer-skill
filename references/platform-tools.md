@@ -1,55 +1,47 @@
-# Platform Tool Mapping
+# Platform Runtime Notes
 
-The `agentic-code-reviewer` skill is written using Claude Code tool names. On Codex and Copilot CLI, use the equivalents below. The skill's behavior is the same on all three platforms.
+The current `agentic-code-reviewer` runtime does **not** dispatch platform-native subagents. Claude Code `Agent`/`Task`, Codex `spawn_agent`, and Copilot `task` are not part of the review fan-out path anymore.
 
-## Tool equivalents
+Review execution is owned by the local process orchestrator:
 
-| Skill references         | Claude Code        | Codex                                  | Copilot CLI                                |
-|--------------------------|--------------------|----------------------------------------|--------------------------------------------|
-| Subagent dispatch        | `Agent` / `Task`   | `spawn_agent` → `wait_agent` → `close_agent` | `task` with `agent_type: "general-purpose"` |
-| Run shell commands       | `Bash`             | native shell tool                      | `bash`                                     |
-| Read a file              | `Read`             | native file-read tool                  | `view`                                     |
-| Grep file content        | `Grep`             | native grep                            | `grep`                                     |
-| Glob filenames           | `Glob`             | native glob                            | `glob`                                     |
-| Invoke another skill     | `Skill`            | skills load natively — follow the instructions | `skill`                            |
-
-When the skill says "launch the 5 reviewers in parallel", emit 5 simultaneous subagent-dispatch calls in the **same assistant turn** using whichever tool name your platform uses.
-
-- **Claude Code**: 5 `Agent` tool calls in one response.
-- **Codex**: 5 `spawn_agent` calls in one response (they are non-blocking, return agent IDs immediately) → a single `wait_agent` to harvest all 5 results → one `close_agent` per agent ID to free the concurrent-agent slots. Spawn-then-wait-then-close *per agent* runs them sequentially and defeats the fan-out. Forgetting `close_agent` leaks slots.
-- **Copilot CLI**: 5 `task` calls in one response.
-
-The Synthesizer (Step 3) is the **only** sequential step: it MUST wait until all 5 reviewer results have returned before being dispatched, because its job is to reconcile across the full set of outputs.
-
-## Codex prerequisite: multi-agent support
-
-Parallel subagent dispatch on Codex requires the `multi_agent` feature flag. Add this to `~/.codex/config.toml`:
-
-```toml
-[features]
-multi_agent = true
+```bash
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.codex/skills/agentic-code-reviewer}"
+bash "${SKILL_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"
 ```
 
-This enables `spawn_agent`, `wait_agent`, and `close_agent`. Without it, the fan-out step will fail. The 3-tool lifecycle is non-negotiable on Codex: spawn returns immediately (so 5 spawns in one turn run concurrently), wait blocks until results are ready, close releases the slot.
+The orchestrator creates `.claude/review-runs/<run-id>/`, starts `scripts/orchestrator.py` with `nohup`, runs 5 reviewer subprocesses through `scripts/run-reviewer.sh`, runs `scripts/run-synthesizer.sh`, then launches the review UI with `--run-dir <path>`.
 
-## Passing agent definitions on non–Claude Code platforms
+## Host requirements
 
-Claude Code reads `agents/*.md` natively (the frontmatter declares model, tools, color). Codex and Copilot CLI do not parse these files automatically.
+| Host | Invocation | Required local tools | Notes |
+|---|---|---|---|
+| Claude Code | `/agentic-code-reviewer`, `/pr-review`, `/review-resume` | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | Stop hook and update-check hook are Claude Code only. |
+| Codex | Tell Codex to run the installed `agentic-code-reviewer` skill | `bash`, `python3`, `git`, `claude`; `codex` for auto-resume; `gh` for PR mode | Codex `multi_agent` is not required. The skill is normally installed at `~/.codex/skills/agentic-code-reviewer`. |
+| Copilot CLI | Manual copy/invocation, untested | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | There is no installer path today. |
 
-On Codex and Copilot CLI: when dispatching a reviewer, pass the **body** of the corresponding `agents/<reviewer>.md` (everything after the frontmatter) as the dispatched agent's system prompt, and put the user-facing review instructions (the diff + scoring criteria) into the message. The frontmatter (`name`, `model`, `tools`, `color`) is ignored on those platforms and can be safely skipped.
+## Skill root resolution
 
-## Resolving the skill root for the web UI server
+Claude Code sets `CLAUDE_PLUGIN_ROOT` when a plugin command runs. Codex does not, so installed Codex usage relies on the fixed install path:
 
-Step 5b of the skill launches `server/review-server.js` via Node. The skill root path differs per platform:
+```text
+~/.codex/skills/agentic-code-reviewer
+```
 
-| Platform | Variable / path |
-|----------|----------------|
-| Claude Code | `$CLAUDE_PLUGIN_ROOT` (set automatically by the harness when the plugin runs) |
-| Codex | `$HOME/.codex/skills/agentic-code-reviewer` (fixed install path; no equivalent env var) |
-| Copilot CLI | wherever you cloned/copied the skill — pass the absolute path manually |
+The server's `PLUGIN_ROOT` resolution tries, in order:
 
-The skill uses `SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.codex/skills/agentic-code-reviewer}"` to cover Claude Code and Codex. On Copilot CLI, edit Step 5b in your local copy of `SKILL.md` to point at the path you installed the skill to.
+1. `CLAUDE_PLUGIN_ROOT`
+2. The current repo root when `.claude-plugin/plugin.json` exists
+3. Legacy Claude cache path `~/.claude/plugins/cache/agentic-code-reviewer`
+4. Marketplace clone `~/.claude/plugins/marketplaces/agentic-code-reviewer-skill`
+5. Codex skill path `~/.codex/skills/agentic-code-reviewer`
+6. A persistent fallback settings directory at `~/.claude/agentic-code-reviewer`
 
-## Platforms not covered
+## Auto-resume
 
-This skill targets Claude Code, Codex, and Copilot CLI only. Gemini CLI, OpenCode, Cursor, and Factory Droid are out of scope — adapt the skill manually via your platform's skill-activation mechanism if needed.
+When the UI handles **Implement** or **Close**, it writes `decisions.json`, touches the compatibility `.done` sentinel, and calls auto-resume:
+
+- Claude Code: uses `CLAUDE_SESSION_ID` with `claude --resume <session-id> --print`.
+- Codex: uses `CODEX_THREAD_ID` with `codex exec resume <thread-id>`.
+- Otherwise: writes `auto-resume.json` with a `started: false` reason; the user can run `/review-resume <run-id>` manually.
+
+Set `ACR_DISABLE_AUTO_RESUME=1` to disable this behavior.

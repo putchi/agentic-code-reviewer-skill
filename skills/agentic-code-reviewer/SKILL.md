@@ -20,6 +20,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"
 ```
 
 `/pr-review <number-or-url>` runs the same launcher with `--pr "$ARGUMENTS"`.
+
+On Codex, `CLAUDE_PLUGIN_ROOT` is not set. Resolve the installed skill root
+before launching:
+
+```bash
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.codex/skills/agentic-code-reviewer}"
+bash "${SKILL_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"
+```
+
 The launcher validates required tools, creates `.claude/review-runs/<run-id>/`,
 starts `scripts/orchestrator.py` with `nohup`, then prints a compact status
 line every 20 seconds until the review UI is ready. Set
