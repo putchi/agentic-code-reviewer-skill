@@ -193,7 +193,7 @@ SEVERITY levels: CRITICAL (confidence 90-100), HIGH (confidence 80-89)
 </diff>
 ```
 
-Capture each agent's **full raw output verbatim** — do not pre-aggregate or filter between Step 2 and Step 3.
+Capture each agent's **full raw output verbatim** — do not pre-aggregate or filter between Step 2 and Step 3. Do NOT print agent results to the chat; they are inputs to the Synthesizer only. The user sees nothing until the browser UI opens in Step 5b.
 
 ## Step 3: Synthesizer pass (sequential — runs ONLY after all 5 reviewers complete)
 
@@ -226,9 +226,17 @@ Once all 5 reviewers return, dispatch the `synthesizer` agent (the Opus judge) u
 
 The Synthesizer dedupes, drops findings without code evidence, resolves contradictions, re-rates severity based on actual blast radius, and writes a top-line verdict. Its output IS the final report — do not modify or re-aggregate it.
 
-## Step 4: Print the Synthesizer's report
+## Step 4: Hand off to review UI
 
-Print the Synthesizer's output verbatim. It includes Verdict, CRITICAL, HIGH, NOTES, and Summary sections.
+Do **NOT** print the Synthesizer's report in chat. Do not echo per-agent output, the verdict, or the findings list to the terminal.
+
+Print only a single line:
+
+```
+Review complete — opening UI.
+```
+
+The full report is rendered in the browser review UI launched in Step 5b. Everything else stays out of the chat transcript.
 
 ## Step 5: Completion signals
 
@@ -274,6 +282,13 @@ After writing the `.done` file and emitting the legacy marker:
      "sessionId": "..."
    }
    ```
+
+   **Timestamp generation:** Generate the `timestamp` value with:
+   ```python
+   import datetime
+   datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+   ```
+   Do **not** use `datetime.datetime.utcnow()` — it emits a `DeprecationWarning` on Python 3.12+.
 
    **Finding IDs** are assigned sequentially in document order: `f1` for the first finding, `f2` for the second, and so on. Do not reorder findings between writing this JSON and reading the decision back — the IDs in `selectedIds` and `dismissedIds` are matched by exact string equality against this list.
 
@@ -352,3 +367,22 @@ After writing the `.done` file and emitting the legacy marker:
      - If `selectedIds` is empty, do not invent work. Apply only the `lineAnnotations` (if any) and the `globalComment` directive (if non-empty). If all three are empty, exit without making changes.
      - Run relevant tests after all changes.
    - If `action === "save"` or `"done"`: no further code changes. The markdown file was already written by the server.
+
+## Step 6a: Print decision summary
+
+Immediately after reading the decision file (before doing any implementation work), emit a compact summary block to the chat:
+
+```
+## Review Decision
+Action: <action>
+Selected (<N>): <comma-separated selectedIds>
+Dismissed (<M>): <comma-separated dismissedIds>
+Report: docs/code-reviews/<filename>
+```
+
+If `globalComment` is non-empty, append:
+```
+Note: <globalComment>
+```
+
+If `selectedIds` is empty, omit that line. If `dismissedIds` is empty, omit that line. The block provides a transcript-level record of what the user decided without re-printing the full findings report (which is already in `docs/code-reviews/`). Then continue immediately into the implementation step (or stop, if `action !== "implement"`).

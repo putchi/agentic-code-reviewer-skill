@@ -4,12 +4,10 @@ interface Props {
   findings: Finding[];
   checkedIds: Set<string>;
   comments: Record<string, string>;
-  globalComment: string;
   onCommentChange: (id: string, text: string) => void;
-  onGlobalChange: (text: string) => void;
 }
 
-export default function CommentsPanel({ findings, checkedIds, comments, globalComment, onCommentChange, onGlobalChange }: Props) {
+export default function CommentsPanel({ findings, checkedIds, comments, onCommentChange }: Props) {
   const checked = findings.filter(f => checkedIds.has(f.id));
   return (
     <>
@@ -26,20 +24,13 @@ export default function CommentsPanel({ findings, checkedIds, comments, globalCo
               <span className="comment-location">{f.location}</span>
             </div>
             <div className="finding-detail">{f.finding}</div>
-            {f.evidence && <div className="evidence-block">{f.evidence}</div>}
+
             <textarea className="comment-input"
               placeholder="Add comment for Claude…"
               value={comments[`_comment_${f.id}`] || ''}
               onChange={e => onCommentChange(`_comment_${f.id}`, e.target.value)} />
           </div>
         ))}
-      </div>
-      <div className="global-comment-area">
-        <div className="global-comment-label">Global Notes</div>
-        <textarea className="global-textarea"
-          placeholder="Overall notes for Claude…"
-          value={globalComment}
-          onChange={e => onGlobalChange(e.target.value)} />
       </div>
     </>
   );

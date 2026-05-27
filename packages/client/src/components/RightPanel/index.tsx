@@ -22,7 +22,7 @@ export default function RightPanel({
   currentFile, chatPrefill, onChatPrefillConsumed,
   onCommentChange, onGlobalChange, onClose,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<'comments' | 'chat'>('comments');
+  const [activeTab, setActiveTab] = useState<'comments' | 'chat'>('chat');
   const checked = findings.filter(f => checkedIds.has(f.id));
 
   // Auto-switch to chat when a prefill arrives
@@ -47,8 +47,8 @@ export default function RightPanel({
       </div>
       {activeTab === 'comments' && (
         <CommentsPanel findings={findings} checkedIds={checkedIds}
-          comments={comments} globalComment={globalComment}
-          onCommentChange={onCommentChange} onGlobalChange={onGlobalChange} />
+          comments={comments}
+          onCommentChange={onCommentChange} />
       )}
       {activeTab === 'chat' && (
         <ChatPanel model={model} currentFile={currentFile}

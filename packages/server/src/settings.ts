@@ -30,6 +30,10 @@ export function loadSettings(): Settings {
 export function saveSettings(patch: Partial<Settings>): Settings {
   const current = loadSettings();
   const updated = { ...current, ...patch };
-  writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+  try {
+    writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+  } catch (e: any) {
+    throw new Error(`Failed to save settings to ${SETTINGS_FILE}: ${e.message}`);
+  }
   return updated;
 }

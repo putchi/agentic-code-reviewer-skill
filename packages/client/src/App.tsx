@@ -9,7 +9,7 @@ import { buildDecisionPayload } from '@acr/shared';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import LeftPanel from './components/LeftPanel/index';
-import DiffViewer from './components/DiffViewer/index';
+import CenterPanel from './components/CenterPanel/index';
 import RightPanel from './components/RightPanel/index';
 import ActionBar from './components/ActionBar';
 import CloseGuardModal from './components/ActionBar/CloseGuardModal';
@@ -26,7 +26,7 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<'ALL'|'CRITICAL'|'HIGH'|'NOTE'>('ALL');
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [rightPanelOpen, setRightPanelOpen] = useLocalStorage('acr-right-panel', true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [splitView, setSplitView] = useLocalStorage('acr-split-view', false);
   const [comments, setComments] = useLocalStorage<Record<string, string>>('acr-comments', {});
   const [checkedIds, setCheckedIds] = useLocalStorage<string[]>('acr-checked-ids', []);
@@ -202,14 +202,16 @@ export default function App() {
           onToggleCheck={toggleCheck}
           onRestoreFinding={restoreFinding} />
         <div className="center-panel">
-          <DiffViewer
-            file={selectedFile} diffText={diffText}
+          <CenterPanel
+            data={data ?? null}
+            selectedFile={selectedFile} diffText={diffText}
             findings={findings} splitView={splitView as boolean}
             onToggleSplit={() => setSplitView(v => !v)}
             rightPanelOpen={rightPanelOpen as boolean}
             onShowRightPanel={() => setRightPanelOpen(true)}
             onHelpModal={() => setShowHelp(true)}
-            onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }} />
+            onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }}
+            onFileDeselect={() => setSelectedFile(null)} />
         </div>
         {rightPanelOpen && (
           <RightPanel

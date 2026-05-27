@@ -18,9 +18,6 @@ export function useSettings() {
 
   useEffect(() => {
     load();
-    const onFocus = () => load();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
   }, [load]);
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {

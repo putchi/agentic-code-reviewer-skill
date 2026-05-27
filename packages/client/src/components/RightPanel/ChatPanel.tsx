@@ -22,9 +22,8 @@ export default function ChatPanel({ model, currentFile, prefillPrompt, onPrefill
 
   useEffect(() => {
     if (prefillPrompt) {
-      setInput(prefillPrompt);
-      taRef.current?.focus();
       onPrefillConsumed?.();
+      send(prefillPrompt, currentFile);
     }
   }, [prefillPrompt]);
 

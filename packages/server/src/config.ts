@@ -1,16 +1,31 @@
 import { resolve } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 function arg(name: string): string | null {
   const args = process.argv.slice(2);
   const i = args.indexOf(name);
   return i !== -1 ? args[i + 1] ?? null : null;
 }
+
+function resolvePluginRoot(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || '/tmp';
+  if (process.env.CLAUDE_PLUGIN_ROOT) return process.env.CLAUDE_PLUGIN_ROOT;
+  const claudeCache = resolve(home, '.claude/plugins/cache/agentic-code-reviewer');
+  if (existsSync(claudeCache)) return claudeCache;
+  const codexSkill = resolve(home, '.codex/skills/agentic-code-reviewer');
+  if (existsSync(codexSkill)) return codexSkill;
+  // Fallback: create a persistent settings dir in ~/.claude/agentic-code-reviewer/
+  const fallback = resolve(home, '.claude/agentic-code-reviewer');
+  mkdirSync(fallback, { recursive: true });
+  return fallback;
+}
+
 export const sessionId = arg('--session') || 'unknown';
 export const findingsFile = arg('--findings-file') || `/tmp/claude-code-review-${sessionId}.json`;
 export const saveDir = arg('--save-dir') || resolve(process.cwd(), 'docs', 'code-reviews');
 export const portArg = parseInt(arg('--port') || '0', 10);
 export const decisionFile = `/tmp/claude-code-review-${sessionId}.decision`;
 export const doneFile = `/tmp/claude-code-review-${sessionId}.done`;
-export const PLUGIN_ROOT = resolve(import.meta.dir, '../../..');
+export const PLUGIN_ROOT = resolvePluginRoot();
 export const MARKETPLACE_URL = 'https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/.claude-plugin/marketplace.json';
 export const INSTALL_BASE = 'curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash';
 export function detectPlatform(): string {

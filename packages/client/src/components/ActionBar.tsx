@@ -29,10 +29,12 @@ export default function ActionBar({
     return buildDecisionPayload({ checkedIds, comments, lineAnnotations, dismissedIds, dismissReasons });
   }
 
-  function startCountdown() {
-    if (autoCloseMs <= 0) return;
+  // Implement always uses at least 3s countdown so the user sees the tab will close.
+  function startCountdown(minMs = 0) {
     if (countdownRef.current) clearInterval(countdownRef.current);
-    let remaining = Math.round(autoCloseMs / 1000);
+    const ms = Math.max(autoCloseMs, minMs);
+    if (ms <= 0) return;
+    let remaining = Math.round(ms / 1000);
     setStatus(`Closing in ${remaining}… `);
     countdownRef.current = setInterval(() => {
       remaining--;
@@ -58,25 +60,30 @@ export default function ActionBar({
     if (checkedIds.size === 0) return;
     setStatus('Sending…');
     await postDecision('implement', buildPayload());
-    startCountdown();
+    // Implement always closes — enforce minimum 3s countdown.
+    startCountdown(3000);
   }
 
-  async function handleSave() {
-    setStatus('Saving…');
-    const result = await postDecision('save', buildPayload());
-    if (autoCloseMs > 0) {
-      startCountdown();
-    } else {
-      setStatus(result.path ? `Saved to ${result.path.split('/').pop()}` : 'Saved');
-      setTimeout(() => setStatus(''), 3000);
-    }
-  }
-
-
-  function handleDismissConfirm(reason: string) {
+  async function handleDismissConfirm(reason: string) {
     onDismiss(Array.from(checkedIds), reason);
     setShowDismiss(false);
+    setStatus('Saving…');
+    // Rebuild payload with newly-dismissed IDs included via the updated state.
+    // Because state updates are async, compute updated sets locally.
+    const updatedDismissedIds = new Set([...dismissedIds, ...checkedIds]);
+    const updatedDismissReasons = { ...dismissReasons };
+    for (const id of checkedIds) { if (reason) updatedDismissReasons[id] = reason; }
+    const updatedCheckedIds = new Set([...checkedIds].filter(id => !updatedDismissedIds.has(id)));
+    const payload = buildDecisionPayload({
+      checkedIds: updatedCheckedIds,
+      comments,
+      lineAnnotations,
+      dismissedIds: updatedDismissedIds,
+      dismissReasons: updatedDismissReasons,
+    });
+    await postDecision('save', payload);
     startCountdown();
+    if (!countdownRef.current) setStatus('Dismissed');
   }
 
   const isCountingDown = countdownRef.current !== null;
@@ -107,12 +114,8 @@ export default function ActionBar({
           title="Mark selected findings as won't-fix or false positive">
           Dismiss
         </button>
-        <button className="btn btn-outline" onClick={handleSave}
-          title="Save findings and decisions to a markdown file — review stays open">
-          Save
-        </button>
         <button className="btn btn-ghost" onClick={onCloseRequest}
-          title="Exit without saving">
+          title="Exit and save report">
           Close
         </button>
       </div>
