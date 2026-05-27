@@ -167,7 +167,7 @@ export default function App() {
     setComments(prev => ({ ...prev, _global: text }));
   }
 
-  const diffText = data?.files.find(f => f.path === selectedFile)?.diff ?? '';
+  const diffText = (data?.files ?? []).find(f => f.path === selectedFile)?.diff ?? '';
 
   if (isLoading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--text-dim)' }}>
@@ -182,7 +182,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header data={data} onMenu={() => setShowMenu(true)} />
+      <Header
+        data={data}
+        onMenu={() => setShowMenu(true)}
+        globalComment={comments['_global'] || ''}
+        onGlobalChange={handleGlobalChange}
+        onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }}
+      />
       <FilterBar activeFilter={activeFilter} counts={counts} onChange={setActiveFilter} />
       <div className="panels">
         <LeftPanel

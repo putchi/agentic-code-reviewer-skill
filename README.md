@@ -25,8 +25,8 @@ On Claude Code there's an extra layer: a Stop hook that blocks the session from 
 2. **Fan out.** Dispatch all 5 reviewer agents in parallel using your platform's subagent tool (see the [platform matrix](#platform-support-matrix)). Each agent gets the same filtered diff and a strict prompt: report only findings with confidence ≥80, formatted as `[SEVERITY] file:line — finding — reasoning`.
 3. **Synthesizer pass.** Send the diff + all 5 raw outputs to the `synthesizer` agent. It applies judge rules (evidence required, semantic dedupe, contradiction resolution, severity re-rated by blast radius, drop speculation) and emits the final report.
 4. **Print verdict.** The Synthesizer's output is the final report — Verdict / CRITICAL / HIGH / NOTES / Summary. No further aggregation.
-5. **Completion signal.** Touch `/tmp/claude-code-review-${SESSION_ID}.done` and emit `<!-- AGENTIC-REVIEW-COMPLETE -->`. On Claude Code these unblock the Stop hook; on other platforms they are harmless no-ops.
-6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch the compiled `review-server` binary that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split) with an annotation toolstrip, per-finding comment cards, global notes, and a chat panel for asking Claude questions about the diff. Click **Implement** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Close** to finish. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
+5. **Completion signal.** Touch `/tmp/claude-code-review-${SESSION_ID}.done` and emit `<!-- AGENTIC-REVIEW-COMPLETE -->`. `SESSION_ID` is `CLAUDE_SESSION_ID` when set, otherwise a random 12-char hex string (never `unknown`). On Claude Code these unblock the Stop hook; on other platforms they are harmless no-ops.
+6. **Interactive review UI.** Serialize the findings + per-file diffs to `/tmp/claude-code-review-${SESSION_ID}.json` and launch the compiled `review-server` binary that opens the browser. Three-panel UI: findings list (severity filters), diff viewer (unified/split) with an annotation toolstrip, per-finding comment cards, global notes, and a chat panel for asking Claude questions about the diff. A **Global comment** button (✎) in the header opens a quick popover for adding an overall review note. Click **Implement** to send chosen findings back to the agent for implementation, **Save** to write a markdown record to `docs/code-reviews/`, or **Close** to finish. Decision is written to `/tmp/claude-code-review-${SESSION_ID}.decision` for the agent to act on.
 
 ## Platform support matrix
 
@@ -119,7 +119,7 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/agentic-code-reviewer`, or let the Stop-hook gate prompt the agent to run it for you when you try to end a session with unreviewed changes.
+- **Claude Code**: run `/agentic-code-reviewer` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop-hook gate will also prompt the agent to run `/agentic-code-reviewer` when you try to end a session with unreviewed changes.
 - **Codex**: skills load natively — tell the agent `run the agentic-code-reviewer skill`.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
@@ -245,6 +245,7 @@ For a large diff (>2000 lines or >50 files) the run fans out to 5 reviewers + 1 
 │   ├── senior-dev-reviewer.md
 │   └── synthesizer.md
 ├── commands/agentic-code-reviewer.md   # Claude Code slash command
+├── commands/pr-review.md               # /pr-review <number|URL> command
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
 │   └── screenshots/                    # UI screenshots for README

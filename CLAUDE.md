@@ -95,13 +95,17 @@ Vite dev server proxies `/api` to `:7788`. For production the entire SPA is bund
 
 ### Shared types (`packages/shared/src/types/`)
 
-Types consumed by both server and client: `Finding`, `ReviewData`, `ChatSession`, `Decision`, `Payload`. Import via `@acr/shared`.
+Types consumed by both server and client: `Finding`, `FileEntry`, `ReviewData`, `LineAnnotation`, `DecisionPayload`, `ChatSession`. The `buildDecisionPayload` helper (in `payload.ts`) transforms client-side state into the wire format. Import everything via `@acr/shared`.
 
 ### Skill / plugin layer
 
-The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts are in `agents/`. The slash commands are in `commands/`. The Stop-hook gate (`hooks/code-review-gate.sh`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
+The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts and the synthesizer prompt (`synthesizer.md`) are in `agents/`. The slash commands are in `commands/` (`agentic-code-reviewer.md`, `pr-review.md`). The Stop-hook gate (`hooks/code-review-gate.sh`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
 
 The server is **not** started by the skill; the skill invokes the compiled binary (or `node server/review-server.js` for the legacy path) after writing the findings JSON to `/tmp/`.
+
+**Session ID:** `CLAUDE_SESSION_ID` when set (Claude Code Stop hook integration); falls back to a 12-char random hex string for standalone invocations (VSCode extension, `/pr-review`, etc.) — never the literal string `unknown`.
+
+**Plugin root resolution** tries three paths in order: `CLAUDE_PLUGIN_ROOT` env var → `~/.claude/plugins/cache/agentic-code-reviewer` → `~/.codex/skills/agentic-code-reviewer`. Exits with an error if none exist.
 
 ### Release
 

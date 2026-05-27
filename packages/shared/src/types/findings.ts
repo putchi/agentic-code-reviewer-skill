@@ -13,7 +13,7 @@ export interface FileEntry { path: string; diff: string; }
 export interface ReviewData {
   verdict: string;
   findings: Finding[];
-  files: FileEntry[];
+  files?: FileEntry[];
   summary: string;
   timestamp: string;
   branch: string;

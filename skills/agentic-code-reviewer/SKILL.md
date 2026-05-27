@@ -12,9 +12,43 @@ description: >
 
 You are performing a comprehensive multi-dimensional code review using 5 specialized sub-agents running in parallel, followed by a Synthesizer pass that produces the final report.
 
+## Step 0: PR mode (optional)
+
+If the user provided a PR number or GitHub URL as an argument (via `/pr-review <arg>`):
+
+1. Extract the PR number: strip the `https://github.com/.*/pull/` prefix if present; the remainder is the PR number.
+2. Fetch PR metadata:
+   ```bash
+   gh pr view <number> --json number,title,author,headRefName,baseRefName,url
+   ```
+3. Fetch the diff (filter unwanted files via grep since `gh pr diff` does not support pathspec exclusions):
+   ```bash
+   gh pr diff <number> | grep -v '^diff --git.*\.\(lock\|min\.js\|min\.css\|png\|jpg\|svg\)' > /tmp/_pr_diff.txt
+   ```
+4. Set `filteredDiff` to the contents of `/tmp/_pr_diff.txt`. Set `prMeta` to the JSON from step 2.
+5. Skip Steps 1a–1c (diff already fetched). Proceed from Step 1d with `filteredDiff`.
+6. In the JSON written in Step 5b, add a `pr` field:
+   ```json
+   "pr": { "number": 123, "title": "...", "author": "...", "branch": "...", "url": "..." }
+   ```
+
+If no PR argument was provided, skip this step and proceed normally from Step 1.
+
+---
+
 ## Step 1: Pre-flight
 
-### 1a. Git-repo guard
+### 1a. Derive session ID
+
+Before fetching the diff, derive a stable session identifier for this run:
+
+```bash
+_SESSION_ID="${CLAUDE_SESSION_ID:-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')}"
+```
+
+Use `${_SESSION_ID}` everywhere below instead of `${CLAUDE_SESSION_ID:-unknown}`.
+
+### 1b. Git-repo guard
 
 Run `git rev-parse --is-inside-work-tree 2>/dev/null`. If this returns anything other than `true`, you are NOT in a git repository.
 
@@ -24,7 +58,7 @@ If not in a git repo:
 - Do NOT write the `.done` completion file.
 - Stop. (The Stop hook will still block exit, which is intentional — the user is in an unusual state and should know.)
 
-### 1b. Get the diff (text only, binary filtered)
+### 1c. Get the diff (text only, binary filtered)
 
 Run `git diff --text HEAD` to get all staged and unstaged changes since last commit. If that returns nothing, run `git diff --text` for unstaged changes only. The `--text` flag prevents binary garbage from being treated as a diff.
 
@@ -36,15 +70,15 @@ Additionally filter out files matching these patterns (do NOT pass them to the r
 
 A practical way: `git diff --text HEAD -- . ':!*.lock' ':!*.min.*' ':!*.png' ':!*.jpg' ':!*.svg' ':!dist/' ':!build/' ':!node_modules/'` (extend as needed).
 
-### 1c. Empty-diff path
+### 1d. Empty-diff path
 
 If the filtered diff is empty:
 - Print: `No reviewable changes — nothing to review.`
-- Touch the completion file: `touch "/tmp/claude-code-review-${CLAUDE_SESSION_ID:-unknown}.done"` (if `CLAUDE_SESSION_ID` is unavailable in your environment, use whatever session identifier the hook will also see; the hook reads `session_id` from its input JSON).
+- Touch the completion file: `touch "/tmp/claude-code-review-${_SESSION_ID}.done"`
 - Output `<!-- AGENTIC-REVIEW-COMPLETE -->` on its own line.
 - Stop.
 
-### 1d. Size cap + cost preview
+### 1e. Size cap + cost preview
 
 Count the lines and files in the filtered diff. If lines > 2000 OR files > 50, print this warning before proceeding:
 
@@ -202,9 +236,9 @@ After printing the report:
 
 1. **Write the session-scoped completion file**:
    ```bash
-   touch "/tmp/claude-code-review-${CLAUDE_SESSION_ID:-unknown}.done"
+   touch "/tmp/claude-code-review-${_SESSION_ID}.done"
    ```
-   This file is consumed by the **Claude Code Stop hook only** (`hooks/code-review-gate.sh`) as the authoritative signal that the review has run. On Codex and Copilot CLI there is no equivalent gate, so the file is written but has no effect — leave the line as-is; it is harmless on platforms that don't read it. (If `CLAUDE_SESSION_ID` is unavailable in your shell environment, the hook will simply not gate exit — that's acceptable; the literal-marker check is no longer the primary gate.)
+   This file is consumed by the **Claude Code Stop hook only** (`hooks/code-review-gate.sh`) as the authoritative signal that the review has run. On Codex and Copilot CLI there is no equivalent gate, so the file is written but has no effect — leave the line as-is; it is harmless on platforms that don't read it.
 
 2. **Emit the legacy marker** for backward compatibility, on its own line with no surrounding text:
 
@@ -219,7 +253,7 @@ That marker is no longer authoritative for the Claude Code Stop hook (the `.done
 After writing the `.done` file and emitting the legacy marker:
 
 1. **Serialize the Synthesizer's structured output** (findings list + verdict) as JSON and write to:
-   `/tmp/claude-code-review-${CLAUDE_SESSION_ID:-unknown}.json`
+   `/tmp/claude-code-review-${_SESSION_ID}.json`
 
    JSON schema:
    ```json
@@ -240,37 +274,81 @@ After writing the `.done` file and emitting the legacy marker:
      "sessionId": "..."
    }
    ```
-   The `files` array is populated by splitting the full filtered diff by file (each `diff --git a/... b/...` block) so the UI can show per-file diffs in the center panel.
 
-2. **Run the review server.** Resolve the skill root depending on platform:
-   - **Claude Code**: `CLAUDE_PLUGIN_ROOT` is set automatically to the plugin's cache directory.
-   - **Codex**: `CLAUDE_PLUGIN_ROOT` is not set; use the fixed Codex skill path instead.
+   **Finding IDs** are assigned sequentially in document order: `f1` for the first finding, `f2` for the second, and so on. Do not reorder findings between writing this JSON and reading the decision back — the IDs in `selectedIds` and `dismissedIds` are matched by exact string equality against this list.
+
+   **To build the `files` array (REQUIRED — do not omit):**
+   1. Split the full filtered diff string on lines that match `^diff --git a/.* b/`.
+      Keep the delimiter line attached to the start of each chunk.
+   2. Discard any leading empty chunk before the first `diff --git` line.
+   3. For each chunk, extract the file path from the `b/` side of the header line:
+      `diff --git a/foo/bar.ts b/foo/bar.ts` → path = `foo/bar.ts`
+      (Strip the `b/` prefix; for renames use the `b/` path as the canonical key.)
+   4. Each chunk (the full `diff --git …\n--- …\n+++ …\n@@ …` block) is the `diff` value.
+   5. The `files` array MUST be non-empty whenever the filtered diff is non-empty.
+      Omitting it or leaving it empty causes the review UI to crash with a blank page.
+
+2. **Run the review server.** Resolve the plugin root by trying paths in order:
 
    ```bash
-   SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.codex/skills/agentic-code-reviewer}"
-   # --platform is optional: the server auto-detects from its install path,
-   # but passing it explicitly is more robust (e.g. for symlinked or custom installs).
+   # Resolve plugin root — try: env var, Claude Code cache, Codex skill path
+   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+     SKILL_ROOT="$CLAUDE_PLUGIN_ROOT"
+   elif [ -d "$HOME/.claude/plugins/cache/agentic-code-reviewer" ]; then
+     SKILL_ROOT="$HOME/.claude/plugins/cache/agentic-code-reviewer"
+   elif [ -d "$HOME/.codex/skills/agentic-code-reviewer" ]; then
+     SKILL_ROOT="$HOME/.codex/skills/agentic-code-reviewer"
+   else
+     echo "ERROR: Cannot locate agentic-code-reviewer plugin root. Set CLAUDE_PLUGIN_ROOT or reinstall." >&2
+     exit 1
+   fi
+
    PLATFORM_FLAG=""
    if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then PLATFORM_FLAG="--platform claude"
    elif [ -d "$HOME/.codex/skills/agentic-code-reviewer" ]; then PLATFORM_FLAG="--platform codex"
    fi
-   node "${SKILL_ROOT}/server/review-server.js" \
-     --session "${CLAUDE_SESSION_ID:-unknown}" \
-     --findings-file "/tmp/claude-code-review-${CLAUDE_SESSION_ID:-unknown}.json" \
+
+   # Use compiled binary; fall back to legacy node path for dev installs
+   if [ -f "${SKILL_ROOT}/dist/review-server" ]; then
+     SERVER_BIN="${SKILL_ROOT}/dist/review-server"
+   else
+     SERVER_BIN="node ${SKILL_ROOT}/server/review-server.js"
+   fi
+
+   ${SERVER_BIN} \
+     --session "${_SESSION_ID}" \
+     --findings-file "/tmp/claude-code-review-${_SESSION_ID}.json" \
      --save-dir "$(pwd)/docs/code-reviews" \
      $PLATFORM_FLAG
    ```
    The server opens the browser and blocks until the user decides.
 
-3. **After the server exits**, read `/tmp/claude-code-review-${CLAUDE_SESSION_ID:-unknown}.decision` if it exists.
+3. **After the server exits**, read `/tmp/claude-code-review-${_SESSION_ID}.decision` if it exists.
    Decision file schema:
    ```json
    {
      "action": "implement|save|done",
      "selectedIds": ["f1", "f2"],
      "comments": { "f1": "user annotation text", "f2": "" },
-     "globalComment": "overall note from user"
+     "globalComment": "overall note from user",
+     "lineAnnotations": {
+       "key": { "file": "src/foo.ts", "lineStart": 42, "lineEnd": 42, "side": "new", "type": "REDLINE", "text": "remove this", "linesText": "  someCode();" }
+     },
+     "dismissedIds": ["f3"],
+     "dismissReasons": { "f3": "false positive — input is sanitized upstream" }
    }
    ```
-   - If `action === "implement"`: implement each selected finding as a code change. For each finding, the user's comment (if any) and the global comment are passed as context to guide the implementation. Run relevant tests after changes.
+   - If `action === "implement"`:
+     - Compare `selectedIds` against the full findings list.
+     - **If only a subset is selected**: implement *only* the findings in `selectedIds`. Do not address any finding whose ID is absent from `selectedIds`, even if it appears in the review report.
+     - **If all findings are selected**: implement all findings.
+     - **Dismissed findings** (those in `dismissedIds`) are findings the user explicitly rejected. Do not implement them, and do not "helpfully" fix them even if they share a file or line with a selected finding. `dismissReasons[id]` records the user's stated reason and is for the markdown report — it is not an instruction to Claude.
+     - For each finding being implemented, use its per-finding comment (`comments[findingId]`, if present) as guidance on how to approach the fix.
+     - Also apply any `lineAnnotations` from the decision file. Each annotation targets the code at `file` lines `lineStart`–`lineEnd` on the specified `side` of the diff (`'new'` = post-change, `'old'` = pre-change). The `linesText` field shows the exact code lines the user marked; the `text` field is the user's note. Annotation types:
+       - `COMMENT` — guidance/observation about that location; treat as a directive for the fix at those lines.
+       - `REDLINE` — code the user wants removed or replaced.
+       - `LABEL` — informational marker (e.g. "this is the bug"); not directly actionable but useful as context.
+     - The `globalComment` (if non-empty) applies to the entire implementation as an overarching directive.
+     - If `selectedIds` is empty, do not invent work. Apply only the `lineAnnotations` (if any) and the `globalComment` directive (if non-empty). If all three are empty, exit without making changes.
+     - Run relevant tests after all changes.
    - If `action === "save"` or `"done"`: no further code changes. The markdown file was already written by the server.

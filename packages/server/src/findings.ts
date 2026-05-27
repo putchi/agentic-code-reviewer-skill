@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import type { ReviewData, LineAnnotation } from '@acr/shared';
 import { findingsFile, sessionId, saveDir } from './config';
 export function readFindings(): ReviewData {
-  try { return JSON.parse(readFileSync(findingsFile, 'utf8')); }
+  try {
+    const review = JSON.parse(readFileSync(findingsFile, 'utf8'));
+    if (!Array.isArray(review.files)) review.files = [];
+    return review;
+  }
   catch {
     return { verdict: '', findings: [], files: [], summary: '',
              timestamp: new Date().toISOString(), branch: '', sessionId };
