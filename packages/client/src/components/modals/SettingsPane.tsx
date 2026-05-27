@@ -70,7 +70,7 @@ export default function SettingsPane({ open, settings, onUpdate, onClose, onHelp
                   onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') onUpdate({ chatModel: m.id }); }}
                 >
                   <div className="radiocard__radio" />
-                  <div>
+                  <div className="radiocard__content">
                     <div className="radiocard__title">{m.label}</div>
                     <div className="radiocard__sub">{m.sub}</div>
                   </div>

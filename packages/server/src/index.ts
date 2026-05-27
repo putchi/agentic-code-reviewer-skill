@@ -18,6 +18,7 @@ const onIdle = () => { console.log('Idle timeout — closing server.'); server.s
 const server = Bun.serve({
   port: portArg || 0,
   hostname: '127.0.0.1',
+  idleTimeout: 120,
   async fetch(req) {
     resetIdle(onIdle);
     const url = new URL(req.url);

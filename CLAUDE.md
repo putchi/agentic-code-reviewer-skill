@@ -161,3 +161,9 @@ rm -f *.bun-build .*.bun-build
 ```
 
 These are content-addressed Bun compile artifacts that accumulate locally and are not useful after the push is done. They are gitignored but clutter the working directory.
+
+## Playwright / Browser Debugging
+
+When using the Playwright MCP for UI debugging or visual verification, screenshots are saved to `.playwright-screenshots/` (gitignored). This is configured via `.mcp.json` in the project root using `--output-dir .playwright-screenshots`.
+
+Never pass explicit root-relative filenames like `screenshot.png` to `browser_take_screenshot` — omit the `filename` parameter and let the output dir handle it.

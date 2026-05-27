@@ -33,7 +33,7 @@ export default function FirstRunModal({ settings, onSave }: Props) {
   const [chatModel, setChatModel] = useState(settings.chatModel);
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(settings.autoCloseMs > 0);
   const [autoCloseSec, setAutoCloseSec] = useState(
-    Math.max(Math.round(settings.autoCloseMs / 1000) || 5, 1)
+    Math.max(Math.round(settings.autoCloseMs / 1000) || 3, 1)
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -89,8 +89,11 @@ export default function FirstRunModal({ settings, onSave }: Props) {
                     tabIndex={0}
                     onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') setChatModel(m.value); }}
                   >
-                    <div className="radiocard__title">{m.title}</div>
-                    <div className="radiocard__sub">{m.sub}</div>
+                    <div className="radiocard__radio" />
+                    <div className="radiocard__content">
+                      <div className="radiocard__title">{m.title}</div>
+                      <div className="radiocard__sub">{m.sub}</div>
+                    </div>
                     {m.tag && <div className="radiocard__tag">{m.tag}</div>}
                   </div>
                 ))}

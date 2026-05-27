@@ -2,6 +2,7 @@ import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { chatSessions, createChatSession } from '../chat-sessions';
 import { readFindings } from '../findings';
 import { buildChatSystemPrompt } from '../chat-context';
+import { resolveCLIPath } from '../cli-path';
 
 export function handleChatSession(payload: { model?: string; currentFile?: string }): Response {
   const reviewData = readFindings();
@@ -37,14 +38,15 @@ export async function handleChatQuery(payload: { sessionId?: string; prompt?: st
     async start(ctrl) {
       const emit = (obj: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
       try {
+        const cliPath = await resolveCLIPath();
         const queryStream = sdkQuery({
           prompt: effectivePrompt,
           options: {
             model: session.model,
-            maxTurns: 1,
-            allowedTools: [],
+            maxTurns: 3,
             cwd: process.cwd(),
             abortController: abort,
+            ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
             ...(session.resolvedSessionId ? { resume: session.resolvedSessionId } : {}),
           },
         });

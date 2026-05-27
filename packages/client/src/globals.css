@@ -1238,6 +1238,10 @@ html, body { overflow-x: auto; }
   position: absolute; inset: 3px;
   border-radius: 50%; background: var(--accent);
 }
+.radiocard__content {
+  display: flex;
+  flex-direction: column;
+}
 .radiocard__title {
   display: block;
   font-size: 13px; font-weight: 600;
