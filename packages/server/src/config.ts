@@ -11,6 +11,8 @@ function resolvePluginRoot(): string {
   if (process.env.CLAUDE_PLUGIN_ROOT) return process.env.CLAUDE_PLUGIN_ROOT;
   const claudeCache = resolve(home, '.claude/plugins/cache/agentic-code-reviewer');
   if (existsSync(claudeCache)) return claudeCache;
+  const claudeMarketplace = resolve(home, '.claude/plugins/marketplaces/agentic-code-reviewer-skill');
+  if (existsSync(claudeMarketplace)) return claudeMarketplace;
   const codexSkill = resolve(home, '.codex/skills/agentic-code-reviewer');
   if (existsSync(codexSkill)) return codexSkill;
   // Fallback: create a persistent settings dir in ~/.claude/agentic-code-reviewer/
@@ -32,6 +34,7 @@ export function detectPlatform(): string {
   const explicit = arg('--platform');
   if (explicit) return explicit;
   if (PLUGIN_ROOT.includes('/.claude/plugins/')) return 'claude';
+  if (PLUGIN_ROOT.includes('/.claude/')) return 'claude';
   if (PLUGIN_ROOT.includes('/.codex/skills/')) return 'codex';
   return '';
 }

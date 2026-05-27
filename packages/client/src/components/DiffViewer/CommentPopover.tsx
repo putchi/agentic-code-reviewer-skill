@@ -1,24 +1,28 @@
 import { useRef, useEffect } from 'react';
 import type { Selection } from '../../hooks/useAnnotations';
 
+const draftMap = new Map<string, string>();
+
 interface Props {
   selection: Selection | null;
   anchorRect: DOMRect | null;
   initialText?: string;
+  draftKey?: string;
   onSave: (text: string) => void;
   onAskAI: (prompt: string) => void;
   onClose: () => void;
 }
 
-export default function CommentPopover({ selection, anchorRect, initialText = '', onSave, onAskAI, onClose }: Props) {
+export default function CommentPopover({ selection, anchorRect, initialText = '', draftKey, onSave, onAskAI, onClose }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (taRef.current) {
-      taRef.current.value = initialText;
+      const draft = draftKey ? draftMap.get(draftKey) : undefined;
+      taRef.current.value = (draft !== undefined && !initialText) ? draft : initialText;
       taRef.current.focus();
     }
-  }, [selection, initialText]);
+  }, [selection, initialText, draftKey]);
 
   if (!selection || !anchorRect) return null;
 
@@ -29,9 +33,14 @@ export default function CommentPopover({ selection, anchorRect, initialText = ''
     ? `line ${selection.lineStart}`
     : `lines ${selection.lineStart}–${selection.lineEnd}`;
 
+  function clearDraft() {
+    if (draftKey) draftMap.delete(draftKey);
+  }
+
   function handleSave() {
     const text = taRef.current?.value.trim() || '';
     if (text) onSave(text);
+    clearDraft();
     onClose();
   }
 
@@ -41,6 +50,7 @@ export default function CommentPopover({ selection, anchorRect, initialText = ''
     const prompt = `Re: ${selection!.file} ${lineRange}\n${fence}\n${selection!.linesText}\n${fence}\n\n${text}`;
     onAskAI(prompt);
     if (text) onSave(text);
+    clearDraft();
     onClose();
   }
 
@@ -54,13 +64,14 @@ export default function CommentPopover({ selection, anchorRect, initialText = ''
         className="comment-popover__textarea"
         placeholder="Add comment…"
         rows={3}
+        onChange={e => { if (draftKey) draftMap.set(draftKey, e.target.value); }}
         onKeyDown={e => {
-          if (e.key === 'Escape') onClose();
+          if (e.key === 'Escape') { clearDraft(); onClose(); }
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSave();
         }}
       />
       <div className="comment-popover__actions">
-        <button className="btn btn--sm btn--ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn--sm btn--ghost" onClick={() => { clearDraft(); onClose(); }}>Cancel</button>
         <button className="btn btn--sm btn--ghost" onClick={handleSaveAndAsk}>Ask AI</button>
         <button className="btn btn--sm btn--primary" onClick={handleSave}>Save</button>
       </div>

@@ -24,12 +24,15 @@ export function useChat(model: string) {
     const userId = ++idCounter.current;
     const assistantId = ++idCounter.current;
 
+    // Add user message immediately; defer assistant message until first text arrives
+    // to avoid referencing assistantId before React state settles.
     setMessages(prev => [
       ...prev,
       { id: userId, role: 'user', text: prompt },
-      { id: assistantId, role: 'assistant', text: '', streaming: true },
     ]);
     setStreaming(true);
+
+    let assistantInserted = false;
 
     try {
       const res = await fetch('/api/chat/query', {
@@ -56,25 +59,57 @@ export function useChat(model: string) {
           try {
             const evt = JSON.parse(data);
             if (evt.type === 'text_delta') {
-              setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, text: m.text + evt.delta } : m
-              ));
+              if (!assistantInserted) {
+                assistantInserted = true;
+                setMessages(prev => [
+                  ...prev,
+                  { id: assistantId, role: 'assistant', text: evt.delta, streaming: true },
+                ]);
+              } else {
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? { ...m, text: m.text + evt.delta } : m
+                ));
+              }
             } else if (evt.type === 'error') {
-              setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, text: `Error: ${evt.message}` } : m
-              ));
+              if (!assistantInserted) {
+                assistantInserted = true;
+                setMessages(prev => [
+                  ...prev,
+                  { id: assistantId, role: 'assistant', text: `Error: ${evt.message}`, streaming: true },
+                ]);
+              } else {
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? { ...m, text: `Error: ${evt.message}` } : m
+                ));
+              }
             }
           } catch {}
         }
       }
     } catch (e: any) {
-      setMessages(prev => prev.map(m =>
-        m.id === assistantId ? { ...m, text: `Error: ${e.message}` } : m
-      ));
+      if (!assistantInserted) {
+        assistantInserted = true;
+        setMessages(prev => [
+          ...prev,
+          { id: assistantId, role: 'assistant', text: `Error: ${e.message}`, streaming: true },
+        ]);
+      } else {
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, text: `Error: ${e.message}` } : m
+        ));
+      }
     } finally {
-      setMessages(prev => prev.map(m =>
-        m.id === assistantId ? { ...m, streaming: false } : m
-      ));
+      // Ensure assistant message exists (e.g. empty response) to avoid dangling spinner
+      if (!assistantInserted) {
+        setMessages(prev => [
+          ...prev,
+          { id: assistantId, role: 'assistant', text: '', streaming: false },
+        ]);
+      } else {
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, streaming: false } : m
+        ));
+      }
       readerRef.current = null;
       setStreaming(false);
     }

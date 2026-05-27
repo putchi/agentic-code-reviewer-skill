@@ -6,7 +6,7 @@ describe('chat-sessions', () => {
   test('createChatSession registers session', () => {
     const id = createChatSession('claude-sonnet-4-6');
     expect(chatSessions.get(id)?.model).toBe('claude-sonnet-4-6');
-    expect(chatSessions.get(id)?.firstQuery).toBe(true);
+    expect(chatSessions.get(id)?.firstQuerySent).toBe(false);
   });
   test('two sessions get different ids', () => {
     expect(createChatSession('m1')).not.toBe(createChatSession('m2'));

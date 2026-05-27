@@ -108,17 +108,17 @@ On Copilot CLI: emit **all 5 `task` calls** in the same response.
 
 #### Right vs. wrong (Claude Code)
 
-✅ **RIGHT** — one assistant turn containing 5 Agent tool calls:
+✅ **RIGHT** — one assistant turn containing 5 Agent tool calls, all with `run_in_background=true`:
 ```
 <assistant turn>
-  Agent(subagent_type=semantic-analyzer, prompt=...)
-  Agent(subagent_type=security-scanner, prompt=...)
-  Agent(subagent_type=architecture-reviewer, prompt=...)
-  Agent(subagent_type=test-coverage-analyzer, prompt=...)
-  Agent(subagent_type=senior-dev-reviewer, prompt=...)
+  Agent(subagent_type=semantic-analyzer, run_in_background=true, prompt=...)
+  Agent(subagent_type=security-scanner, run_in_background=true, prompt=...)
+  Agent(subagent_type=architecture-reviewer, run_in_background=true, prompt=...)
+  Agent(subagent_type=test-coverage-analyzer, run_in_background=true, prompt=...)
+  Agent(subagent_type=senior-dev-reviewer, run_in_background=true, prompt=...)
 </assistant turn>
 ```
-The harness runs all 5 in parallel; you receive 5 results in one tool-result batch.
+The harness runs all 5 in parallel in the background — subagent file reads and bash output do NOT appear in the main conversation. You are automatically re-invoked when all agents complete; no polling or sleeping is needed. Do NOT omit `run_in_background=true` — without it the harness streams each agent's tool calls inline, cluttering the conversation.
 
 ❌ **WRONG** — 5 separate turns:
 ```

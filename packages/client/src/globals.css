@@ -1218,7 +1218,7 @@ html, body { overflow-x: auto; }
   text-align: left;
 }
 .radiocard:hover { background: var(--bg-hover); border-color: var(--border-default); }
-.radiocard[data-checked="true"] {
+.radiocard[data-checked] {
   background: var(--accent-soft);
   border-color: rgba(79,140,255,0.45);
 }
@@ -1230,10 +1230,10 @@ html, body { overflow-x: auto; }
   position: relative;
   flex-shrink: 0;
 }
-.radiocard[data-checked="true"] .radiocard__radio {
+.radiocard[data-checked] .radiocard__radio {
   border-color: var(--accent);
 }
-.radiocard[data-checked="true"] .radiocard__radio::after {
+.radiocard[data-checked] .radiocard__radio::after {
   content: "";
   position: absolute; inset: 3px;
   border-radius: 50%; background: var(--accent);
@@ -1346,6 +1346,43 @@ html, body { overflow-x: auto; }
   from { opacity: 0; transform: scale(0.92); }
   to { opacity: 1; transform: scale(1); }
 }
+
+/* ====================================================================
+   Update toast
+   ==================================================================== */
+.update-toast {
+  position: fixed;
+  bottom: calc(var(--actionbar-h) + 10px);
+  right: 16px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px; color: var(--fg-default);
+  z-index: 150;
+  white-space: nowrap;
+}
+.update-toast .btn-sm {
+  height: 26px; padding: 0 10px;
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--r-md);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+.update-toast .btn-sm:hover { background: rgba(79,140,255,0.18); }
+.toast-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: var(--r-sm);
+  border: none; background: none;
+  color: var(--fg-faint); font-size: 13px;
+  cursor: pointer; flex-shrink: 0;
+}
+.toast-close:hover { color: var(--fg-default); background: var(--bg-hover); }
 
 /* ====================================================================
    Settings drawer (opened from ≡ menu)

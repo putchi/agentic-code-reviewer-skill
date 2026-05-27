@@ -42,7 +42,7 @@ const server = Bun.serve({
       const payload = await req.json().catch(() => ({}));
       if (url.pathname === '/api/settings')       return Response.json(saveSettings(payload));
       if (url.pathname === '/api/chat/session') return handleChatSession(payload);
-      if (url.pathname === '/api/chat/query')   return handleChatQuery(payload);
+      if (url.pathname === '/api/chat/query')   return await handleChatQuery(payload);
       if (url.pathname === '/api/chat/abort')   return handleChatAbort(payload);
       if (url.pathname === '/api/implement')    return await handleImplement(payload);
       if (url.pathname === '/api/save')         return await handleSave(payload);

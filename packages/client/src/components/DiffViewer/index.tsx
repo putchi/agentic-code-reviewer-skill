@@ -150,6 +150,8 @@ export default function DiffViewer({
       )}
       {showComment && (
         <CommentPopover selection={selection} anchorRect={anchorRect}
+          draftKey={selection ? annotKey(selection.file, selection.lineStart, selection.lineEnd, selection.side) : undefined}
+          initialText={selection ? (annotations[annotKey(selection.file, selection.lineStart, selection.lineEnd, selection.side)]?.text ?? '') : ''}
           onSave={text => { if (selection && text) addAnnotation(selection, 'COMMENT', text); }}
           onAskAI={prompt => onAskAI(prompt)}
           onClose={clearSelection} />

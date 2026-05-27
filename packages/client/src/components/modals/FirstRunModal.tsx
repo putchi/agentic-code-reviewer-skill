@@ -129,8 +129,8 @@ export default function FirstRunModal({ settings, onSave }: Props) {
           </div>
 
           <aside className="modal__aside">
-            <div className="modal__hint-head">Find these later</div>
-            <div className="modal__hint-body">
+            <div className="modal__aside-title">Find these later</div>
+            <div className="modal__aside-text">
               Use the <strong>≡</strong> menu in the top bar to access these settings at any time.
             </div>
           </aside>

@@ -17,7 +17,7 @@ export default function UpdateToast() {
   return (
     <div className="update-toast">
       <span>Update available: {info.installed} → {info.latest}</span>
-      <button className="btn btn-sm btn-primary" onClick={() => { navigator.clipboard.writeText(info.installCommand).catch(() => {}); }}>
+      <button className="btn-sm" onClick={() => { navigator.clipboard.writeText(info.installCommand).catch(() => {}); }}>
         Copy install command
       </button>
       <button className="toast-close" onClick={() => { setDismissed(info.latest); setInfo(null); }}>✕</button>
