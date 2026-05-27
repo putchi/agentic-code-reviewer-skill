@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useState } from 'react';
 import type { Settings } from '../../lib/api';
+import { ToggleSwitch } from '../atoms';
 
 interface Props {
   settings: Settings;
@@ -8,79 +9,144 @@ interface Props {
 }
 
 const MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced — fast and capable (default)' },
-  { value: 'claude-opus-4-7',   label: 'Opus 4.7',   desc: 'Most capable, slower' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest, lightest' },
+  {
+    value: 'claude-sonnet-4-6',
+    title: 'Claude Sonnet 4.6',
+    sub: 'Balanced — fast and capable',
+    tag: 'default',
+  },
+  {
+    value: 'claude-opus-4-7',
+    title: 'Claude Opus 4.7',
+    sub: 'Most capable, slower',
+    tag: null,
+  },
+  {
+    value: 'claude-haiku-4-5-20251001',
+    title: 'Claude Haiku 4.5',
+    sub: 'Fastest, lightest',
+    tag: null,
+  },
 ];
 
 export default function FirstRunModal({ settings, onSave }: Props) {
   const [chatModel, setChatModel] = useState(settings.chatModel);
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(settings.autoCloseMs > 0);
-  const [autoCloseSec, setAutoCloseSec] = useState(Math.max(settings.autoCloseMs / 1000, 3));
+  const [autoCloseSec, setAutoCloseSec] = useState(
+    Math.max(Math.round(settings.autoCloseMs / 1000) || 5, 1)
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   function handleSave() {
-    onSave({
-      chatModel,
-      autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
-      firstRunDone: true,
-    });
+    if (saving || saved) return;
+    setSaving(true);
+    setTimeout(() => {
+      setSaving(false);
+      setSaved(true);
+      setTimeout(() => {
+        onSave({
+          chatModel,
+          autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
+          firstRunDone: true,
+        });
+      }, 700);
+    }, 280);
+  }
+
+  function handleSkip() {
+    onSave({ firstRunDone: true });
+  }
+
+  function clampSec(val: number) {
+    return Math.min(60, Math.max(1, val));
   }
 
   return createPortal(
-    <div className="first-run-backdrop">
-      <div className="first-run-card">
-        <div className="first-run-header">
-          <div className="first-run-title">Welcome to Agentic Code Reviewer</div>
-          <div className="first-run-subtitle">These are your default settings — confirm or adjust before your first review.</div>
+    <div className="modal__scrim">
+      <div className="modal">
+        <div className="modal__head">
+          <div className="modal__eyebrow">Welcome — first-run setup</div>
+          <div className="modal__title">Agentic Code Reviewer</div>
+          <div className="modal__sub">
+            These are your default settings — confirm or adjust before your first review.
+          </div>
         </div>
-        <div className="first-run-body">
-          <div className="first-run-left">
-            <div className="first-run-section">
-              <div className="first-run-label">Chat model</div>
-              <div className="first-run-desc">AI model used in the Ask AI chat panel</div>
-              {MODELS.map(m => (
-                <label key={m.value} className="first-run-radio">
-                  <input type="radio" name="chatModel" value={m.value}
-                    checked={chatModel === m.value}
-                    onChange={() => setChatModel(m.value)} />
-                  <span className="first-run-radio-label">{m.label}</span>
-                  <span className="first-run-radio-desc">{m.desc}</span>
-                </label>
-              ))}
-            </div>
-            <div className="first-run-section">
-              <div className="first-run-label">Auto-close tab</div>
-              <div className="first-run-desc">Automatically close the browser tab after an action completes</div>
-              <label className="first-run-toggle">
-                <input type="checkbox" checked={autoCloseEnabled}
-                  onChange={e => setAutoCloseEnabled(e.target.checked)} />
-                <span>Enable auto-close</span>
-              </label>
+
+        <div className="modal__body">
+          <div className="modal__main">
+            <section>
+              <div className="modal__section-label">Chat model</div>
+              <div className="modal__radiogroup">
+                {MODELS.map(m => (
+                  <div
+                    key={m.value}
+                    className="radiocard"
+                    data-checked={chatModel === m.value ? '' : undefined}
+                    onClick={() => setChatModel(m.value)}
+                    role="radio"
+                    aria-checked={chatModel === m.value}
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') setChatModel(m.value); }}
+                  >
+                    <div className="radiocard__title">{m.title}</div>
+                    <div className="radiocard__sub">{m.sub}</div>
+                    {m.tag && <div className="radiocard__tag">{m.tag}</div>}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="modal__section-label">Auto-close</div>
+              <div className="toggle-row">
+                <ToggleSwitch
+                  on={autoCloseEnabled}
+                  onChange={setAutoCloseEnabled}
+                />
+                <span className="toggle-row__label">Auto-close tab</span>
+              </div>
               {autoCloseEnabled && (
-                <div className="first-run-delay">
-                  <label>
-                    Delay (seconds):
-                    <input type="number" min={1} max={60} value={autoCloseSec}
-                      onChange={e => setAutoCloseSec(Number(e.target.value))}
-                      className="first-run-number" />
-                  </label>
+                <div className="stepper">
+                  <button
+                    className="stepper__btn"
+                    onClick={() => setAutoCloseSec(v => clampSec(v - 1))}
+                    disabled={autoCloseSec <= 1}
+                  >
+                    −
+                  </button>
+                  <span className="stepper__val">{autoCloseSec}s</span>
+                  <button
+                    className="stepper__btn"
+                    onClick={() => setAutoCloseSec(v => clampSec(v + 1))}
+                    disabled={autoCloseSec >= 60}
+                  >
+                    +
+                  </button>
                 </div>
               )}
-            </div>
+            </section>
           </div>
-          <div className="first-run-right">
-            <div className="first-run-hint">
-              <div className="first-run-hint-title">Find settings later</div>
-              <div className="first-run-hint-body">
-                Use the <strong>≡</strong> menu in the top bar to access these settings at any time.
-              </div>
+
+          <aside className="modal__aside">
+            <div className="modal__hint-head">Find these later</div>
+            <div className="modal__hint-body">
+              Use the <strong>≡</strong> menu in the top bar to access these settings at any time.
             </div>
+          </aside>
+        </div>
+
+        {saved ? (
+          <div className="saved">✓ Settings saved</div>
+        ) : (
+          <div className="modal__foot">
+            <div className="modal__foot-meta">You can change these anytime via the ≡ menu.</div>
+            <button className="btn btn--ghost" onClick={handleSkip}>Skip</button>
+            <button className="btn btn--cta" onClick={handleSave} disabled={saving}>
+              Save &amp; continue
+            </button>
           </div>
-        </div>
-        <div className="first-run-footer">
-          <div className="first-run-footer-note">You can change these anytime via the ≡ menu in the top bar.</div>
-          <button className="first-run-btn" onClick={handleSave}>Save &amp; Continue</button>
-        </div>
+        )}
       </div>
     </div>,
     document.body

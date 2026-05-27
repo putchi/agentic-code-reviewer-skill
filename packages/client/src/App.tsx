@@ -35,7 +35,7 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showCloseGuard, setShowCloseGuard] = useState(false);
-  const [chatPrefill, setChatPrefill] = useState('');
+  const [chatPrefill, setChatPrefill] = useState<{ id: number; prompt: string } | null>(null);
 
   const checkedSet = new Set(checkedIds);
   const dismissedSet = new Set(dismissedIds);
@@ -187,10 +187,10 @@ export default function App() {
         onMenu={() => setShowMenu(true)}
         globalComment={comments['_global'] || ''}
         onGlobalChange={handleGlobalChange}
-        onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }}
+        onAskAI={prompt => { setChatPrefill({ id: Date.now(), prompt }); setRightPanelOpen(true); }}
       />
       <FilterBar activeFilter={activeFilter} counts={counts} onChange={setActiveFilter} />
-      <div className="panels">
+      <div className="app__body">
         <LeftPanel
           findings={filtered} files={files}
           selectedFindingId={selectedFinding?.id ?? null}
@@ -201,28 +201,37 @@ export default function App() {
           onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
           onToggleCheck={toggleCheck}
           onRestoreFinding={restoreFinding} />
-        <div className="center-panel">
-          <CenterPanel
-            data={data ?? null}
-            selectedFile={selectedFile} diffText={diffText}
-            findings={findings} splitView={splitView as boolean}
-            onToggleSplit={() => setSplitView(v => !v)}
-            rightPanelOpen={rightPanelOpen as boolean}
-            onShowRightPanel={() => setRightPanelOpen(true)}
-            onHelpModal={() => setShowHelp(true)}
-            onAskAI={prompt => { setChatPrefill(prompt); setRightPanelOpen(true); }}
-            onFileDeselect={() => setSelectedFile(null)} />
-        </div>
+        <CenterPanel
+          data={data ?? null}
+          selectedFile={selectedFile} diffText={diffText}
+          findings={findings} splitView={splitView as boolean}
+          onToggleSplit={() => setSplitView(v => !v)}
+          rightPanelOpen={rightPanelOpen as boolean}
+          onShowRightPanel={() => setRightPanelOpen(true)}
+          onHelpModal={() => setShowHelp(true)}
+          onAskAI={prompt => { setChatPrefill({ id: Date.now(), prompt }); setRightPanelOpen(true); }}
+          onFileDeselect={() => setSelectedFile(null)} />
         {rightPanelOpen && (
           <RightPanel
-            findings={findings} checkedIds={checkedSet}
-            comments={comments} globalComment={comments['_global'] || ''}
-            model={settings.chatModel} currentFile={selectedFile ?? undefined}
+            findings={findings}
+            checkedIds={checkedSet}
+            comments={comments}
+            model={settings.chatModel}
             chatPrefill={chatPrefill}
-            onChatPrefillConsumed={() => setChatPrefill('')}
             onCommentChange={handleCommentChange}
-            onGlobalChange={handleGlobalChange}
             onClose={() => setRightPanelOpen(false)} />
+        )}
+        {!rightPanelOpen && (
+          <button
+            className="btn btn--sm btn--icon btn--ghost"
+            style={{ position: 'fixed', right: 8, top: '50%', transform: 'translateY(-50%)', zIndex: 100 }}
+            onClick={() => setRightPanelOpen(true)}
+            title="Open panel"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
         )}
       </div>
       <ActionBar

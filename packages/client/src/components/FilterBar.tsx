@@ -4,19 +4,40 @@ interface Props {
   onChange: (f: 'ALL' | 'CRITICAL' | 'HIGH' | 'NOTE') => void;
 }
 
+const CHIPS: Array<{ id: 'ALL' | 'CRITICAL' | 'HIGH' | 'NOTE'; label: string; mod: string | null }> = [
+  { id: 'ALL',      label: 'All',      mod: null },
+  { id: 'CRITICAL', label: 'Critical', mod: 'critical' },
+  { id: 'HIGH',     label: 'High',     mod: 'high' },
+  { id: 'NOTE',     label: 'Note',     mod: 'note' },
+];
+
 export default function FilterBar({ activeFilter, counts, onChange }: Props) {
+  const countFor = (id: 'ALL' | 'CRITICAL' | 'HIGH' | 'NOTE') => {
+    if (id === 'ALL') return counts.CRITICAL + counts.HIGH + counts.NOTE;
+    return counts[id];
+  };
+
   return (
-    <div className="filter-bar">
-      <button className={`chip${activeFilter === 'ALL' ? ' active' : ''}`} onClick={() => onChange('ALL')}>All</button>
-      <button className={`chip crit${activeFilter === 'CRITICAL' ? ' active' : ''}`} onClick={() => onChange('CRITICAL')}>
-        CRITICAL: {counts.CRITICAL}
-      </button>
-      <button className={`chip high${activeFilter === 'HIGH' ? ' active' : ''}`} onClick={() => onChange('HIGH')}>
-        HIGH: {counts.HIGH}
-      </button>
-      <button className={`chip note${activeFilter === 'NOTE' ? ' active' : ''}`} onClick={() => onChange('NOTE')}>
-        NOTE: {counts.NOTE}
-      </button>
+    <div className="fbar">
+      <span className="fbar__label">Filter</span>
+      {CHIPS.map(chip => (
+        <button
+          key={chip.id}
+          className={`chip${chip.mod ? ` chip--sev-${chip.mod}` : ''}`}
+          aria-pressed={activeFilter === chip.id}
+          onClick={() => onChange(chip.id)}
+        >
+          {chip.mod ? <span className="chip__dot" /> : null}
+          {chip.label}
+          <span className="chip__count">{countFor(chip.id)}</span>
+        </button>
+      ))}
+      <span className="fbar__spacer" />
+      <span className="fbar__hint">
+        <kbd>J</kbd>/<kbd>K</kbd> navigate &nbsp;
+        <kbd>Space</kbd> select &nbsp;
+        <kbd>Enter</kbd> open diff
+      </span>
     </div>
   );
 }

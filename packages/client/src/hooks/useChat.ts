@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { createChatSession, abortChat } from '../lib/api';
 
 export interface ChatMessage {
+  id: number;
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
@@ -12,20 +13,23 @@ export function useChat(model: string) {
   const [streaming, setStreaming] = useState(false);
   const sessionRef = useRef<string | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const idCounter = useRef(0);
 
   async function send(prompt: string, currentFile?: string) {
     if (streaming) return;
     if (!sessionRef.current) {
       sessionRef.current = await createChatSession(model);
     }
-    setMessages(prev => [...prev, { role: 'user', text: prompt }]);
-    setStreaming(true);
 
-    let assistantIdx: number;
-    setMessages(prev => {
-      assistantIdx = prev.length;
-      return [...prev, { role: 'assistant', text: '', streaming: true }];
-    });
+    const userId = ++idCounter.current;
+    const assistantId = ++idCounter.current;
+
+    setMessages(prev => [
+      ...prev,
+      { id: userId, role: 'user', text: prompt },
+      { id: assistantId, role: 'assistant', text: '', streaming: true },
+    ]);
+    setStreaming(true);
 
     try {
       const res = await fetch('/api/chat/query', {
@@ -52,24 +56,24 @@ export function useChat(model: string) {
           try {
             const evt = JSON.parse(data);
             if (evt.type === 'text_delta') {
-              setMessages(prev => prev.map((m, i) =>
-                i === assistantIdx ? { ...m, text: m.text + evt.delta } : m
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, text: m.text + evt.delta } : m
               ));
             } else if (evt.type === 'error') {
-              setMessages(prev => prev.map((m, i) =>
-                i === assistantIdx ? { ...m, text: `Error: ${evt.message}` } : m
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, text: `Error: ${evt.message}` } : m
               ));
             }
           } catch {}
         }
       }
     } catch (e: any) {
-      setMessages(prev => prev.map((m, i) =>
-        i === assistantIdx! ? { ...m, text: `Error: ${e.message}` } : m
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId ? { ...m, text: `Error: ${e.message}` } : m
       ));
     } finally {
-      setMessages(prev => prev.map((m, i) =>
-        i === assistantIdx! ? { ...m, streaming: false } : m
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId ? { ...m, streaming: false } : m
       ));
       readerRef.current = null;
       setStreaming(false);

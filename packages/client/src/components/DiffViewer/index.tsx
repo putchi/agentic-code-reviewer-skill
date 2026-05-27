@@ -111,15 +111,17 @@ export default function DiffViewer({
 
   return (
     <>
-      <div className="diff-header">
-        <span className="diff-filename">{file ?? 'No file selected'}</span>
-        <div className="diff-nav">
-          <button className="btn-sm" onClick={handlePrevFinding}>◀ prev</button>
-          <button className="btn-sm">next ▶</button>
-        </div>
-        <button className="toggle-view" onClick={onToggleSplit}>{splitView ? 'split' : 'unified'}</button>
+      <div className="diff-toolbar">
+        <span className="diff-toolbar__filename">{file ?? 'No file selected'}</span>
+        <button className="btn btn--sm btn--ghost" onClick={onToggleSplit} title="Toggle split/unified view">
+          {splitView ? 'Unified' : 'Split'}
+        </button>
         {!rightPanelOpen && (
-          <button className="btn-show-panel visible" onClick={onShowRightPanel} title="Show panel">‹</button>
+          <button className="btn btn--sm btn--icon btn--ghost" onClick={onShowRightPanel} title="Show right panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
         )}
       </div>
 

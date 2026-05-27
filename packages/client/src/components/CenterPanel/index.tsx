@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Finding, ReviewData } from '@acr/shared';
 import DiffViewer from '../DiffViewer/index';
 import ResultsView from './ResultsView';
@@ -19,6 +19,46 @@ interface Props {
 
 type Tab = 'results' | 'diff';
 
+function DiffTools() {
+  const [view, setView] = React.useState('unified');
+  return (
+    <div className="tabbar__tools">
+      <button className="btn btn--sm btn--ghost" title="Previous finding">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+      <button className="btn btn--sm btn--ghost" title="Next finding">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+      <span style={{ width: 6 }} />
+      <div className="diff__divider" />
+      <button
+        className={`btn btn--sm btn--icon${view === 'unified' ? ' btn--active' : ''}`}
+        onClick={() => setView('unified')}
+        title="Unified view"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="8" x2="21" y2="8" />
+          <line x1="3" y1="16" x2="21" y2="16" />
+        </svg>
+      </button>
+      <button
+        className={`btn btn--sm btn--icon${view === 'split' ? ' btn--active' : ''}`}
+        onClick={() => setView('split')}
+        title="Split view"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="8" height="18" rx="1" />
+          <rect x="13" y="3" width="8" height="18" rx="1" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export default function CenterPanel({
   data, selectedFile, diffText, findings, splitView, rightPanelOpen,
   onToggleSplit, onShowRightPanel, onHelpModal, onAskAI, onFileDeselect,
@@ -36,30 +76,36 @@ export default function CenterPanel({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <div className="center-tabs" style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+    <div className="panel cp">
+      <div className="tabbar" role="tablist">
         <button
-          className={`center-tab${activeTab === 'results' ? ' center-tab-active' : ''}`}
+          className={`tab${activeTab === 'results' ? ' tab--active' : ''}`}
+          role="tab"
+          aria-selected={activeTab === 'results'}
           onClick={handleResultsTabClick}
-          style={{
-            padding: '8px 16px', fontSize: '13px', border: 'none', background: 'none',
-            cursor: 'pointer', borderBottom: activeTab === 'results' ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === 'results' ? 'var(--text)' : 'var(--text-dim)', fontWeight: activeTab === 'results' ? 600 : 400,
-          }}>
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
           Code Review Results
         </button>
         <button
-          className={`center-tab${activeTab === 'diff' ? ' center-tab-active' : ''}`}
+          className={`tab${activeTab === 'diff' ? ' tab--active' : ''}`}
+          role="tab"
+          aria-selected={activeTab === 'diff'}
           onClick={() => setActiveTab('diff')}
-          style={{
-            padding: '8px 16px', fontSize: '13px', border: 'none', background: 'none',
-            cursor: 'pointer', borderBottom: activeTab === 'diff' ? '2px solid var(--accent)' : '2px solid transparent',
-            color: activeTab === 'diff' ? 'var(--text)' : 'var(--text-dim)', fontWeight: activeTab === 'diff' ? 600 : 400,
-          }}>
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="16 18 22 12 16 6" />
+            <polyline points="8 6 2 12 8 18" />
+          </svg>
           Code Diff
+          {selectedFile !== null && <span className="tab__count">1</span>}
         </button>
+        <span className="tabbar__spacer" />
+        {activeTab === 'diff' && <DiffTools />}
       </div>
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="cp__content">
         {activeTab === 'results' ? (
           <ResultsView data={data} />
         ) : (
