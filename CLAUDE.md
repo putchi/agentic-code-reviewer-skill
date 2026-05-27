@@ -99,9 +99,11 @@ Types consumed by both server and client: `Finding`, `FileEntry`, `ReviewData`, 
 
 ### Skill / plugin layer
 
-The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts and the synthesizer prompt (`synthesizer.md`) are in `agents/`. The slash commands are in `commands/` (`agentic-code-reviewer.md`, `pr-review.md`). The Stop-hook gate (`hooks/code-review-gate.sh`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
+The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts and the synthesizer prompt (`synthesizer.md`) are in `agents/`. The slash commands are in `commands/` (`agentic-code-reviewer.md`, `pr-review.md`, `review-resume.md`). The Stop-hook gate (`hooks/code-review-gate.sh`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
 
-The server is **not** started by the skill; the skill invokes the compiled binary (or `node server/review-server.js` for the legacy path) after writing the findings JSON to `/tmp/`.
+The slash commands are lightweight launchers. `/agentic-code-reviewer` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, starts `scripts/orchestrator.py` with `nohup`, and returns immediately. The five reviewers run as separate non-interactive `claude --print --output-format json` processes through `scripts/run-reviewer.sh`; `scripts/run-synthesizer.sh` runs only after all reviewer result files exist and validate. The Bun server is launched with `--run-dir <path>` and reads `synthesis.json`; decisions are written to `decisions.json`. The `/tmp/claude-code-review-*` files remain only for compatibility.
+
+After UI decisions are saved, the user runs `/review-resume <run-id>`. That command reads `synthesis.json` and `decisions.json`, then implements only findings marked `ask_claude_to_implement` or `accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and reports `create_follow_up_task` items.
 
 **Session ID:** `CLAUDE_SESSION_ID` when set (Claude Code Stop hook integration); falls back to a 12-char random hex string for standalone invocations (VSCode extension, `/pr-review`, etc.) — never the literal string `unknown`.
 

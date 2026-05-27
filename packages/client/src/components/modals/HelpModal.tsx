@@ -5,17 +5,18 @@ interface Props { onClose: () => void; }
 export default function HelpModal({ onClose }: Props) {
   const [tab, setTab] = useState<'modes'|'actions'>('modes');
   return (
-    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal__scrim" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal">
-        <div className="modal-header">
-          <span className="modal-title">How to use Agentic Code Review</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
+        <div className="modal__head">
+          <h2 className="modal__title">Agentic Code Review</h2>
+          <button className="btn btn--sm btn--icon btn--ghost modal__close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="modal-tabs">
           <div className={`modal-tab${tab === 'modes' ? ' active' : ''}`} onClick={() => setTab('modes')}>Annotation Modes</div>
           <div className={`modal-tab${tab === 'actions' ? ' active' : ''}`} onClick={() => setTab('actions')}>What Happens</div>
         </div>
-        <div className="modal-body">
+        <div className="modal__body modal__body--single">
+          <div className="modal__main">
           {tab === 'modes' ? (
             <>
               <h3>Select (default)</h3>
@@ -31,15 +32,15 @@ export default function HelpModal({ onClose }: Props) {
               <h3>Keyboard shortcuts</h3>
               <ul>
                 <li><code>j</code> / <code>k</code> — next / previous finding</li>
-                <li><code>Space</code> — toggle checkbox on active finding</li>
+                <li><code>Space</code> — toggle implement action on active finding</li>
                 <li><code>Enter</code> — view diff for active finding</li>
                 <li><code>Escape</code> — close any open popover / modal</li>
               </ul>
             </>
           ) : (
             <>
-              <h3>Implement</h3>
-              <p>Writes selected findings and comments to the decision file, then closes the server. Claude Code reads the decision and proceeds with implementation.</p>
+              <h3>Decision actions</h3>
+              <p>Each finding is saved with one action for Claude to apply after <code>/review-resume</code>.</p>
               <h3>Save</h3>
               <p>Saves a Markdown review summary to <code>docs/code-reviews/</code>. Keeps the server running.</p>
               <h3>Done</h3>
@@ -48,6 +49,7 @@ export default function HelpModal({ onClose }: Props) {
               <p>Ask Claude about the diff. Uses the current model (configurable in Settings). The system prompt includes the full diff and all findings.</p>
             </>
           )}
+          </div>
         </div>
       </div>
     </div>

@@ -22,6 +22,8 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
 
   const branch = data?.branch ?? '';
   const date = data?.timestamp?.slice(0, 10) ?? '';
+  const runMeta = data?.runId ? `run ${data.runId}` : branch;
+  const status = data?.synthesisStatus ? `status ${data.synthesisStatus}` : date;
 
   return (
     <header className="hdr" style={{ position: 'relative' }}>
@@ -43,8 +45,9 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
               <path d="M5 4.5V11.5"/>
               <path d="M5 4.5C5 7 11 6.5 11 6.5"/>
             </svg>
-            <span>{branch}</span>
-            {date && <><span className="dot" /><span>{date}</span></>}
+            <span>{runMeta}</span>
+            {status && <><span className="dot" /><span>{status}</span></>}
+            {data?.resumeCommand && <><span className="dot" /><span>{data.resumeCommand}</span></>}
           </div>
         </div>
       </div>

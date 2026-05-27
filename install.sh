@@ -163,8 +163,17 @@ copy_repo_tree() {
 
 download_server_binary() {
   local target_dir="$1"
+  local local_binary="$ROOT_DIR/dist/review-server"
   local plugin_json="$target_dir/.claude-plugin/plugin.json"
   local tag
+
+  if [ -x "$local_binary" ]; then
+    echo "Installing local server binary from $local_binary."
+    mkdir -p "$target_dir/dist"
+    cp "$local_binary" "$target_dir/dist/review-server"
+    chmod +x "$target_dir/dist/review-server"
+    return 0
+  fi
 
   if [ -f "$plugin_json" ]; then
     tag="v$(json_value "$plugin_json" version 2>/dev/null || true)"
@@ -211,6 +220,7 @@ install_codex_skill() {
   local agents_dir="$ROOT_DIR/agents"
   local refs_dir="$ROOT_DIR/references"
   local server_dir="$ROOT_DIR/server"
+  local scripts_dir="$ROOT_DIR/scripts"
 
   if [ ! -f "$skill_md" ]; then
     echo "Error: source skill not found: $skill_md" >&2
@@ -226,6 +236,10 @@ install_codex_skill() {
   fi
   if [ ! -d "$server_dir" ]; then
     echo "Error: server directory not found: $server_dir" >&2
+    exit 1
+  fi
+  if [ ! -d "$scripts_dir" ]; then
+    echo "Error: scripts directory not found: $scripts_dir" >&2
     exit 1
   fi
 
@@ -250,17 +264,11 @@ install_codex_skill() {
           ;;
       esac
     fi
-    rm -rf "$target_dir"
   fi
 
-  mkdir -p "$target_dir"
-  cp "$skill_md" "$target_dir/SKILL.md"
-  cp -R "$agents_dir" "$target_dir/agents"
-  cp -R "$refs_dir" "$target_dir/references"
-  cp -R "$server_dir" "$target_dir/server"
-  # Copy the plugin manifest so the web UI's update-check can read the installed version.
-  mkdir -p "$target_dir/.claude-plugin"
-  cp "$ROOT_DIR/.claude-plugin/plugin.json" "$target_dir/.claude-plugin/plugin.json"
+  copy_repo_tree "$target_dir"
+  chmod +x "$target_dir/scripts/"*.sh "$target_dir/scripts/"*.py 2>/dev/null || true
+  download_server_binary "$target_dir"
 
   echo "Installed Agentic Code Reviewer for codex:"
   echo "  $target_dir"
@@ -431,6 +439,8 @@ install_claude_plugin() {
 
   chmod +x "$marketplace_dir/hooks/code-review-gate.sh" "$marketplace_dir/hooks/check-update.sh" 2>/dev/null || true
   chmod +x "$cache_dir/hooks/code-review-gate.sh" "$cache_dir/hooks/check-update.sh" 2>/dev/null || true
+  chmod +x "$marketplace_dir/scripts/"*.sh "$marketplace_dir/scripts/"*.py 2>/dev/null || true
+  chmod +x "$cache_dir/scripts/"*.sh "$cache_dir/scripts/"*.py 2>/dev/null || true
 
   update_claude_plugin_settings "$settings_file" "$known_marketplaces_file" "$marketplace_dir"
   remove_legacy_claude_skill

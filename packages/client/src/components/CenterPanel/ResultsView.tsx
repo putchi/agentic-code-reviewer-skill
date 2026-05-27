@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import type { ReviewData, Finding } from '@acr/shared';
-import { SevBadge, Checkbox } from '../atoms';
+import type { ReviewData, Finding, FindingAction } from '@acr/shared';
+import { SevBadge } from '../atoms';
+import { ACTION_OPTIONS } from '../../lib/findingActions';
 
 interface Props {
   data: ReviewData | null;
-  checkedIds?: Set<string>;
+  selectedFindingId: string | null;
+  findingActions: Record<string, FindingAction | ''>;
+  onSelectFinding: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
 const DIMENSIONS: Record<string, { id: string; name: string; desc: string; icon: string }> = {
@@ -71,12 +75,13 @@ function getSevDot(severity: string) {
 
 interface FindingCardProps {
   f: Finding;
-  checkedIds: Set<string>;
-  onCheck: (id: string) => void;
-  onOpenFinding: (id: string) => void;
+  selected: boolean;
+  action: FindingAction | '';
+  onSelect: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
-function FindingCard({ f, checkedIds, onCheck, onOpenFinding }: FindingCardProps) {
+function FindingCard({ f, selected, action, onSelect, onFindingAction }: FindingCardProps) {
   // Parse location into dir/filename + line
   const loc = f.location ?? '';
   const lineParts = loc.split(':');
@@ -87,14 +92,7 @@ function FindingCard({ f, checkedIds, onCheck, onOpenFinding }: FindingCardProps
   const filename = slashIdx >= 0 ? filePart.slice(slashIdx + 1) : filePart;
 
   return (
-    <div className="card">
-      <div className="card__check">
-        <Checkbox
-          checked={checkedIds.has(f.id)}
-          onChange={() => onCheck(f.id)}
-          ariaLabel={`Toggle finding: ${f.finding}`}
-        />
-      </div>
+    <div className="card" data-selected={selected ? true : undefined}>
       <div className="card__main">
         <div className="card__row1">
           <SevBadge severity={f.severity} />
@@ -114,7 +112,18 @@ function FindingCard({ f, checkedIds, onCheck, onOpenFinding }: FindingCardProps
         <p className="card__reason">{f.reasoning ?? ''}</p>
       </div>
       <div className="card__actions">
-        <button className="btn btn--sm" onClick={() => onOpenFinding(f.id)}>
+        <select
+          className="finding__action"
+          value={action}
+          aria-label={`Action for finding ${f.finding}`}
+          onChange={e => onFindingAction(f.id, e.target.value as FindingAction | '')}
+        >
+          <option value="">No action</option>
+          {ACTION_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <button className="btn btn--sm" onClick={() => onSelect(f)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
             <polyline points="15 3 21 3 21 9" />
@@ -136,12 +145,13 @@ function FindingCard({ f, checkedIds, onCheck, onOpenFinding }: FindingCardProps
 interface DimensionGroupProps {
   dim: string;
   items: Finding[];
-  checkedIds: Set<string>;
-  onCheck: (id: string) => void;
-  onOpenFinding: (id: string) => void;
+  selectedFindingId: string | null;
+  findingActions: Record<string, FindingAction | ''>;
+  onSelectFinding: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
-function DimensionGroup({ dim, items, checkedIds, onCheck, onOpenFinding }: DimensionGroupProps) {
+function DimensionGroup({ dim, items, selectedFindingId, findingActions, onSelectFinding, onFindingAction }: DimensionGroupProps) {
   const hasCritical = items.some(i => i.severity === 'CRITICAL');
   const [open, setOpen] = useState(hasCritical);
 
@@ -182,9 +192,10 @@ function DimensionGroup({ dim, items, checkedIds, onCheck, onOpenFinding }: Dime
             <FindingCard
               key={f.id}
               f={f}
-              checkedIds={checkedIds}
-              onCheck={onCheck}
-              onOpenFinding={onOpenFinding}
+              selected={selectedFindingId === f.id}
+              action={findingActions[f.id] || ''}
+              onSelect={onSelectFinding}
+              onFindingAction={onFindingAction}
             />
           ))}
         </div>
@@ -193,7 +204,7 @@ function DimensionGroup({ dim, items, checkedIds, onCheck, onOpenFinding }: Dime
   );
 }
 
-export default function ResultsView({ data, checkedIds = new Set() }: Props) {
+export default function ResultsView({ data, selectedFindingId, findingActions, onSelectFinding, onFindingAction }: Props) {
   if (!data) {
     return (
       <div style={{ padding: '24px', color: 'var(--fg-faint)', fontSize: 13 }}>
@@ -217,10 +228,6 @@ export default function ResultsView({ data, checkedIds = new Set() }: Props) {
   const delCount = (data.files ?? []).reduce((s, f) => s + (f.del ?? 0), 0);
 
   const groups = groupByDimension(data.findings);
-
-  // no-op stubs for future wiring
-  const handleCheck = (_id: string) => {};
-  const handleOpenFinding = (_id: string) => {};
 
   return (
     <div className="results">
@@ -267,9 +274,10 @@ export default function ResultsView({ data, checkedIds = new Set() }: Props) {
               key={dim}
               dim={dim}
               items={items}
-              checkedIds={checkedIds}
-              onCheck={handleCheck}
-              onOpenFinding={handleOpenFinding}
+              selectedFindingId={selectedFindingId}
+              findingActions={findingActions}
+              onSelectFinding={onSelectFinding}
+              onFindingAction={onFindingAction}
             />
           ))}
         </>

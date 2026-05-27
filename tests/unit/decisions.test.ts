@@ -75,8 +75,8 @@ describe('saveMarkdown', () => {
     const md = readFileSync(p, 'utf8');
     expect(md.indexOf('## CRITICAL')).toBeLessThan(md.indexOf('## HIGH'));
     expect(md.indexOf('## HIGH')).toBeLessThan(md.indexOf('## NOTE'));
-    expect(md).toContain('☑ selected for implementation');
-    expect(md).toContain('☐ not selected');
+    expect(md).toContain('Decision: selected for implementation');
+    expect(md).toContain('Decision: not selected');
     expect(md).toContain('**Your notes:** overall');
   });
   test('renders Line Annotations section', async () => {

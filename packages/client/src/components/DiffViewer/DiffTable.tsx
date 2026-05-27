@@ -1,4 +1,4 @@
-import type { Finding } from '@acr/shared';
+import type { Finding, FindingAction } from '@acr/shared';
 import type { DiffRow } from '../../lib/diff';
 import type { LineAnnotation } from '@acr/shared';
 import { annotKey } from '../../lib/annotKey';
@@ -7,14 +7,21 @@ interface Props {
   rows: DiffRow[];
   file: string;
   findings: Finding[];
+  selectedFindingId: string | null;
+  findingActions: Record<string, FindingAction | ''>;
   annotations: Record<string, LineAnnotation>;
   selectedLines: Set<string>;
   onRowMouseUp: (e: React.MouseEvent<HTMLTableRowElement>, row: DiffRow) => void;
   onAnnotClick: (key: string, e: React.MouseEvent) => void;
+  onSelectFinding: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
   splitView: boolean;
 }
 
-export default function DiffTable({ rows, file, findings, annotations, selectedLines, onRowMouseUp, onAnnotClick, splitView }: Props) {
+export default function DiffTable({
+  rows, file, findings, selectedFindingId, findingActions, annotations, selectedLines,
+  onRowMouseUp, onAnnotClick, onSelectFinding, onFindingAction, splitView,
+}: Props) {
   const findingsByLine: Record<number, Finding[]> = {};
   for (const f of findings) {
     if (f.file === file) {
@@ -58,8 +65,27 @@ export default function DiffTable({ rows, file, findings, annotations, selectedL
                     className={`gutter-dot gutter-dot-${annot.type === 'COMMENT' ? 'ANNOTATION' : annot.type}`}
                     onClick={e => key && onAnnotClick(key, e)} title={annot.text}>●</span>
                 )}
-                {!annot && lineFindings.length > 0 && (
-                  <span className={`gutter-dot gutter-dot-${lineFindings[0].severity}`} title={lineFindings[0].finding}>●</span>
+                {lineFindings.length > 0 && (
+                  <button
+                    type="button"
+                    className={`gutter-dot gutter-dot-${lineFindings[0].severity}${selectedFindingId === lineFindings[0].id ? ' gutter-dot--selected' : ''}`}
+                    title={lineFindings[0].finding}
+                    aria-label={`Select finding ${lineFindings[0].finding}`}
+                    data-action={findingActions[lineFindings[0].id] || undefined}
+                    onMouseDown={e => e.stopPropagation()}
+                    onMouseUp={e => e.stopPropagation()}
+                    onClick={e => {
+                      e.stopPropagation();
+                      onSelectFinding(lineFindings[0]);
+                    }}
+                    onDoubleClick={e => {
+                      e.stopPropagation();
+                      onFindingAction(
+                        lineFindings[0].id,
+                        findingActions[lineFindings[0].id] ? '' : 'ask_claude_to_implement'
+                      );
+                    }}
+                  >●</button>
                 )}
               </td>
               <td>{isHunk ? <span style={{ color: 'var(--purple)' }}>{row.text}</span> : row.text}</td>

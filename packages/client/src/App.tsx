@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Finding } from '@acr/shared';
+import type { Finding, FindingAction } from '@acr/shared';
 import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations } from './hooks/useAnnotations';
@@ -29,35 +29,29 @@ export default function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [splitView, setSplitView] = useLocalStorage('acr-split-view', false);
   const [comments, setComments] = useLocalStorage<Record<string, string>>('acr-comments', {});
-  const [checkedIds, setCheckedIds] = useLocalStorage<string[]>('acr-checked-ids', []);
-  const [dismissedIds, setDismissedIds] = useLocalStorage<string[]>('acr-dismissed-ids', []);
-  const [dismissReasons, setDismissReasons] = useLocalStorage<Record<string, string>>('acr-dismiss-reasons', {});
+  const [findingActions, setFindingActions] = useLocalStorage<Record<string, FindingAction | ''>>('acr-finding-actions', {});
   const [showHelp, setShowHelp] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showCloseGuard, setShowCloseGuard] = useState(false);
   const [chatPrefill, setChatPrefill] = useState<{ id: number; prompt: string } | null>(null);
 
-  const checkedSet = new Set(checkedIds);
-  const dismissedSet = new Set(dismissedIds);
-
-  useEffect(() => {
-    if (!data) return;
-    // Pre-check CRITICAL findings on first load
-    const key = 'acr-checked-initted';
-    if (!localStorage.getItem(key)) {
-      const critIds = data.findings.filter(f => f.severity === 'CRITICAL').map(f => f.id);
-      if (critIds.length) setCheckedIds(critIds);
-      localStorage.setItem(key, '1');
-    }
-  }, [data]);
-
   const findings = data?.findings ?? [];
   const files = data?.files ?? [];
+
+  useEffect(() => {
+    if (!data?.runId) return;
+    const key = 'acr-current-run-id';
+    if (localStorage.getItem(key) === data.runId) return;
+    setFindingActions({});
+    setComments({});
+    localStorage.setItem(key, data.runId);
+  }, [data?.runId]);
+
   const counts = { CRITICAL: 0, HIGH: 0, NOTE: 0 };
   for (const f of findings) { if (f.severity in counts) counts[f.severity as keyof typeof counts]++; }
   const filtered = findings.filter(f => activeFilter === 'ALL' || f.severity === activeFilter);
   const unaddressedCriticals = findings.filter(
-    f => f.severity === 'CRITICAL' && !checkedSet.has(f.id) && !dismissedSet.has(f.id)
+    f => f.severity === 'CRITICAL' && !findingActions[f.id]
   );
 
   useEffect(() => {
@@ -84,7 +78,7 @@ export default function App() {
       }
       if (e.key === ' ' && selectedFinding) {
         e.preventDefault();
-        toggleCheck(selectedFinding.id);
+        setFindingAction(selectedFinding.id, findingActions[selectedFinding.id] ? '' : 'ask_claude_to_implement');
         return;
       }
       if (e.key === 'Enter' && selectedFinding) {
@@ -94,48 +88,23 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [filtered, selectedFinding]);
+  }, [filtered, selectedFinding, findingActions]);
 
-  function toggleCheck(id: string) {
-    setCheckedIds(prev => {
-      const s = new Set(prev);
-      if (s.has(id)) s.delete(id); else s.add(id);
-      return Array.from(s);
-    });
-  }
-  function selectAll() { setCheckedIds(findings.map(f => f.id)); }
-  function deselectAll() { setCheckedIds([]); }
-
-  function dismissFindings(ids: string[], reason: string) {
-    const idSet = new Set(ids);
-    setDismissedIds(prev => Array.from(new Set([...prev, ...ids])));
-    setDismissReasons(prev => {
+  function setFindingAction(id: string, action: FindingAction | '') {
+    setFindingActions(prev => {
       const next = { ...prev };
-      for (const id of ids) {
-        if (reason) next[id] = reason;
-        else delete next[id];
-      }
-      return next;
-    });
-    setCheckedIds(prev => prev.filter(id => !idSet.has(id)));
-  }
-
-  function restoreFinding(id: string) {
-    setDismissedIds(prev => prev.filter(x => x !== id));
-    setDismissReasons(prev => {
-      const next = { ...prev };
-      delete next[id];
+      if (action) next[id] = action;
+      else delete next[id];
       return next;
     });
   }
 
   function buildBasePayload() {
     return buildDecisionPayload({
-      checkedIds: checkedSet,
+      runId: data?.runId,
+      findingActions,
       comments,
       lineAnnotations: annotations,
-      dismissedIds: dismissedSet,
-      dismissReasons,
     });
   }
 
@@ -195,16 +164,18 @@ export default function App() {
           findings={filtered} files={files}
           selectedFindingId={selectedFinding?.id ?? null}
           selectedFile={selectedFile}
-          checkedIds={checkedSet}
-          dismissedIds={dismissedSet}
+          findingActions={findingActions}
           onSelectFinding={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
           onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
-          onToggleCheck={toggleCheck}
-          onRestoreFinding={restoreFinding} />
+          onFindingAction={setFindingAction} />
         <CenterPanel
           data={data ?? null}
           selectedFile={selectedFile} diffText={diffText}
           findings={findings} splitView={splitView as boolean}
+          selectedFindingId={selectedFinding?.id ?? null}
+          findingActions={findingActions}
+          onSelectFinding={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
+          onFindingAction={setFindingAction}
           onToggleSplit={() => setSplitView(v => !v)}
           rightPanelOpen={rightPanelOpen as boolean}
           onShowRightPanel={() => setRightPanelOpen(true)}
@@ -214,7 +185,7 @@ export default function App() {
         {rightPanelOpen && (
           <RightPanel
             findings={findings}
-            checkedIds={checkedSet}
+            findingActions={findingActions}
             comments={comments}
             model={settings.chatModel}
             chatPrefill={chatPrefill}
@@ -235,13 +206,12 @@ export default function App() {
         )}
       </div>
       <ActionBar
-        checkedIds={checkedSet}
+        runId={data?.runId}
+        totalFindings={findings.length}
+        findingActions={findingActions}
         comments={comments}
         lineAnnotations={annotations}
-        autoCloseMs={settings.autoCloseMs}
-        dismissedIds={dismissedSet} dismissReasons={dismissReasons}
-        onSelectAll={selectAll} onDeselectAll={deselectAll}
-        onDismiss={dismissFindings}
+        resumeCommand={data?.resumeCommand}
         onCloseRequest={handleCloseRequest} />
       {!isLoading && !settings.firstRunDone && (
         <FirstRunModal settings={settings} onSave={patch => updateSettings(patch)} />

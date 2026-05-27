@@ -26,9 +26,9 @@ describe('buildDecisionPayload', () => {
     expect('f001' in result.comments).toBe(false);
   });
 
-  test('ignores non-_comment_ keys in comments', () => {
+  test('keeps direct finding-id comment keys', () => {
     const result = buildDecisionPayload({ ...emptyParams, comments: { '_global': 'note', other: 'x' } });
-    expect(result.comments).toEqual({});
+    expect(result.comments).toEqual({ other: 'x' });
   });
 
   test('reads globalComment from comments._global', () => {

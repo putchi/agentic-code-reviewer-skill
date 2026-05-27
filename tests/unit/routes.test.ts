@@ -3,8 +3,9 @@
 // The fixture is copied to the path that config.ts resolves via the default session.
 
 import { describe, test, expect, afterAll, beforeAll } from 'bun:test';
-import { copyFileSync, unlinkSync, existsSync, renameSync } from 'node:fs';
+import { copyFileSync, unlinkSync, existsSync, renameSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { compareSemver, handleVersionCheck, getInstalledVersion } from '../../packages/server/src/routes/version';
 import { readFindings } from '../../packages/server/src/findings';
 
@@ -24,6 +25,49 @@ describe('handleReview', () => {
     const data = readFindings();
     expect(Array.isArray(data.findings)).toBe(true);
     expect(Array.isArray(data.files)).toBe(true);
+  });
+  test('readReviewFromRunDir converts synthesis.json to review payload', async () => {
+    const runDir = mkdtempSync(resolve(tmpdir(), 'acr-run-'));
+    try {
+      mkdirSync(resolve(runDir, 'agents'));
+      writeFileSync(resolve(runDir, 'run.json'), JSON.stringify({ run_id: 'r1', repo: process.cwd(), status: 'awaiting_decisions' }));
+      writeFileSync(resolve(runDir, 'context.json'), JSON.stringify({
+        run_id: 'r1',
+        repo: process.cwd(),
+        branch: 'main',
+        timestamp: '2026-05-27T00:00:00Z',
+        files: [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-old\n+new' }],
+      }));
+      writeFileSync(resolve(runDir, 'synthesis.json'), JSON.stringify({
+        run_id: 'r1',
+        two_sentence_verdict: 'Needs one fix. Address f1 first.',
+        deduped_findings: [{
+          id: 'f1',
+          severity: 'HIGH',
+          file: 'src/a.ts',
+          line: 1,
+          location: 'src/a.ts:1',
+          finding: 'Bug',
+          reasoning: 'Why',
+          evidence: 'new',
+          source_agents: ['semantic-analyzer'],
+        }],
+        dropped_findings_with_reason: [],
+        contradictions_resolved: [],
+        severity_rationale: {},
+        recommended_next_actions: ['Fix f1'],
+        source_agent_result_files: ['agents/semantic-analyzer.json'],
+      }));
+      const { readReviewFromRunDir } = await import('../../packages/server/src/findings');
+      const data = readReviewFromRunDir(runDir)!;
+      expect(data.runId).toBe('r1');
+      expect(data.findings).toHaveLength(1);
+      expect(data.files?.[0].path).toBe('src/a.ts');
+      expect(data.resumeCommand).toBe('/review-resume r1');
+      expect(data.synthesisStatus).toBe('awaiting_decisions');
+    } finally {
+      rmSync(runDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -93,4 +137,3 @@ describe('getInstalledVersion catch path', () => {
     }
   });
 });
-

@@ -8,8 +8,9 @@ export interface Finding {
   reasoning?: string;
   evidence?: string;
   dimensions?: string[];
+  source_agents?: string[];
 }
-export interface FileEntry { path: string; diff: string; }
+export interface FileEntry { path: string; diff: string; add?: number; del?: number; }
 export interface ReviewData {
   verdict: string;
   findings: Finding[];
@@ -18,4 +19,8 @@ export interface ReviewData {
   timestamp: string;
   branch: string;
   sessionId: string;
+  runId?: string;
+  synthesisStatus?: string;
+  resumeCommand?: string;
+  recommendedNextActions?: string[];
 }

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { Finding } from '@acr/shared';
+import type { Finding, FindingAction } from '@acr/shared';
 import type { LineAnnotation } from '@acr/shared';
 import { parseDiff } from '../../lib/diff';
 import { annotKey } from '../../lib/annotKey';
@@ -15,6 +15,10 @@ interface Props {
   diffText: string;
   findings: Finding[];
   splitView: boolean;
+  selectedFindingId: string | null;
+  findingActions: Record<string, FindingAction | ''>;
+  onSelectFinding: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
   onToggleSplit: () => void;
   rightPanelOpen: boolean;
   onShowRightPanel: () => void;
@@ -23,7 +27,7 @@ interface Props {
 }
 
 export default function DiffViewer({
-  file, diffText, findings, splitView, onToggleSplit,
+  file, diffText, findings, splitView, selectedFindingId, findingActions, onSelectFinding, onFindingAction, onToggleSplit,
   rightPanelOpen, onShowRightPanel, onHelpModal, onAskAI,
 }: Props) {
   const { annotations, addAnnotation, removeAnnotation } = useAnnotations();
@@ -133,8 +137,12 @@ export default function DiffViewer({
       <div className={`diff-view${pinpoint ? ' pinpoint-mode' : ''}`}>
         {file ? (
           <DiffTable rows={rows} file={file} findings={findings}
+            selectedFindingId={selectedFindingId}
+            findingActions={findingActions}
             annotations={annotations} selectedLines={selectedLines}
             onRowMouseUp={handleMouseUp} onAnnotClick={handleAnnotClick}
+            onSelectFinding={onSelectFinding}
+            onFindingAction={onFindingAction}
             splitView={splitView} />
         ) : (
           <div className="empty-state">Select a finding or file to view diff</div>

@@ -1,8 +1,8 @@
 {
   "name": "agentic-code-reviewer",
-  "description": "Meticulous agentic code reviewer: 5 specialized sub-agents (logic, security, architecture, tests, best practices) plus a Synthesizer pass that dedupes, re-rates by evidence, and writes a verdict",
+  "description": "Backgrounded agentic code reviewer: 5 specialized reviewer processes plus a Synthesizer pass, review UI decisions, and deterministic resume flow",
   "author": {
     "name": "User"
   },
-  "version": "1.2.6"
+  "version": "1.3.0"
 }

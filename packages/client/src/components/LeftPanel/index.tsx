@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import type { Finding, FileEntry } from '@acr/shared';
+import type { Finding, FileEntry, FindingAction } from '@acr/shared';
 import FindingsList from './FindingsList';
 import FilesList from './FilesList';
 
@@ -8,17 +8,15 @@ interface Props {
   files: FileEntry[];
   selectedFindingId: string | null;
   selectedFile: string | null;
-  checkedIds: Set<string>;
-  dismissedIds: Set<string>;
+  findingActions: Record<string, FindingAction | ''>;
   onSelectFinding: (f: Finding) => void;
   onSelectFile: (path: string) => void;
-  onToggleCheck: (id: string) => void;
-  onRestoreFinding: (id: string) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
 export default function LeftPanel({
-  findings, files, selectedFindingId, selectedFile, checkedIds, dismissedIds,
-  onSelectFinding, onSelectFile, onToggleCheck, onRestoreFinding,
+  findings, files, selectedFindingId, selectedFile, findingActions,
+  onSelectFinding, onSelectFile, onFindingAction,
 }: Props) {
   const [tab, setTab] = useState<'findings' | 'files'>('findings');
   const [query, setQuery] = useState('');
@@ -76,11 +74,9 @@ export default function LeftPanel({
           <FindingsList
             findings={filteredFindings}
             selectedId={selectedFindingId}
-            checkedIds={checkedIds}
-            dismissedIds={dismissedIds}
+            findingActions={findingActions}
             onSelect={onSelectFinding}
-            onToggle={onToggleCheck}
-            onRestore={onRestoreFinding}
+            onFindingAction={onFindingAction}
           />
         </div>
       ) : (

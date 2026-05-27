@@ -1,17 +1,16 @@
-import type { Finding } from '@acr/shared';
-import { SevBadge, Checkbox } from '../atoms';
+import type { Finding, FindingAction } from '@acr/shared';
+import { SevBadge } from '../atoms';
+import { ACTION_OPTIONS } from '../../lib/findingActions';
 
 interface Props {
   findings: Finding[];
   selectedId: string | null;
-  checkedIds: Set<string>;
-  dismissedIds: Set<string>;
+  findingActions: Record<string, FindingAction | ''>;
   onSelect: (f: Finding) => void;
-  onToggle: (id: string) => void;
-  onRestore: (id: string) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
-export default function FindingsList({ findings, selectedId, checkedIds, dismissedIds, onSelect, onToggle, onRestore }: Props) {
+export default function FindingsList({ findings, selectedId, findingActions, onSelect, onFindingAction }: Props) {
   if (!findings.length) {
     return (
       <div style={{ padding: '32px 18px', textAlign: 'center', color: 'var(--fg-faint)', fontSize: 12 }}>
@@ -22,8 +21,8 @@ export default function FindingsList({ findings, selectedId, checkedIds, dismiss
   return (
     <>
       {findings.map(f => {
-        const dismissed = dismissedIds.has(f.id);
         const selected = selectedId === f.id;
+        const action = findingActions[f.id] || '';
 
         const parts = f.file.split('/');
         const fileLast = parts.pop() ?? f.file;
@@ -36,18 +35,9 @@ export default function FindingsList({ findings, selectedId, checkedIds, dismiss
             role="option"
             aria-selected={selected}
             data-selected={selected ? true : undefined}
-            data-dismissed={dismissed ? true : undefined}
-            style={dismissed ? { opacity: 0.45 } : undefined}
-            onClick={() => dismissed ? onRestore(f.id) : onSelect(f)}
+            data-action={action || undefined}
+            onClick={() => onSelect(f)}
           >
-            <div className="finding__check">
-              <Checkbox
-                checked={checkedIds.has(f.id)}
-                onChange={() => onToggle(f.id)}
-                ariaLabel={`Select finding ${f.finding}`}
-                disabled={dismissed}
-              />
-            </div>
             <div className="finding__body">
               <div className="finding__row1">
                 <SevBadge severity={f.severity} />
@@ -57,6 +47,18 @@ export default function FindingsList({ findings, selectedId, checkedIds, dismiss
               </div>
               <div className="finding__title">{f.finding}</div>
             </div>
+            <select
+              className="finding__action"
+              value={action}
+              aria-label={`Action for finding ${f.finding}`}
+              onClick={e => e.stopPropagation()}
+              onChange={e => onFindingAction(f.id, e.target.value as FindingAction | '')}
+            >
+              <option value="">No action</option>
+              {ACTION_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
           </div>
         );
       })}

@@ -1,20 +1,21 @@
-import type { Finding, LineAnnotation } from '@acr/shared';
+import type { Finding, FindingAction, LineAnnotation } from '@acr/shared';
 import { SevBadge } from '../atoms';
 import { useAnnotations } from '../../hooks/useAnnotations';
+import { actionLabel } from '../../lib/findingActions';
 
 interface Props {
   findings: Finding[];
-  checkedIds: Set<string>;
+  findingActions: Record<string, FindingAction | ''>;
   comments: Record<string, string>;
   onCommentChange: (id: string, text: string) => void;
 }
 
-export default function CommentsPanel({ findings, checkedIds, comments, onCommentChange }: Props) {
-  const checkedFindings = findings.filter(f => checkedIds.has(f.id));
+export default function CommentsPanel({ findings, findingActions, comments, onCommentChange }: Props) {
+  const decidedFindings = findings.filter(f => findingActions[f.id]);
   const { annotations, removeAnnotation } = useAnnotations();
   const annotEntries = Object.entries(annotations);
 
-  if (checkedFindings.length === 0 && annotEntries.length === 0) {
+  if (decidedFindings.length === 0 && annotEntries.length === 0) {
     return (
       <div className="rp__content">
         <div className="rp__empty">
@@ -23,8 +24,8 @@ export default function CommentsPanel({ findings, checkedIds, comments, onCommen
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
           </div>
-          <div style={{ color: 'var(--fg-default)', fontWeight: 500, marginBottom: 4 }}>No checked findings</div>
-          <div>Check findings on the left to add per-finding instructions for Claude.</div>
+          <div style={{ color: 'var(--fg-default)', fontWeight: 500, marginBottom: 4 }}>No finding decisions</div>
+          <div>Choose actions on the left to add per-finding instructions for Claude.</div>
         </div>
       </div>
     );
@@ -32,15 +33,16 @@ export default function CommentsPanel({ findings, checkedIds, comments, onCommen
 
   return (
     <div className="rp__content">
-      {checkedFindings.length > 0 && (
+      {decidedFindings.length > 0 && (
         <div className="cmt-list">
-          {checkedFindings.map(f => (
+          {decidedFindings.map(f => (
             <div className="cmt" key={f.id}>
               <div className="cmt__row1">
                 <SevBadge severity={f.severity} />
                 <span className="cmt__loc" title={f.file}>
                   {f.file}<span style={{ color: 'var(--fg-disabled)' }}>:{f.line ?? ''}</span>
                 </span>
+                <span className="cmt__action">{actionLabel(findingActions[f.id])}</span>
               </div>
               <div className="cmt__title">{f.finding}</div>
               <textarea
@@ -55,7 +57,7 @@ export default function CommentsPanel({ findings, checkedIds, comments, onCommen
       )}
 
       {annotEntries.length > 0 && (
-        <div className="cmt-list" style={{ marginTop: checkedFindings.length > 0 ? 12 : 0 }}>
+        <div className="cmt-list" style={{ marginTop: decidedFindings.length > 0 ? 12 : 0 }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-muted)', padding: '0 0 6px 0' }}>
             Line annotations
           </div>

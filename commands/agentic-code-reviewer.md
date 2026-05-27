@@ -1,6 +1,6 @@
 ---
-description: "Deep multi-dimensional code review using 5 parallel sub-agents (logic, security, architecture, tests, best practices). Reports only high-confidence findings."
+description: "Launch a fully backgrounded agentic code review run for the current git diff."
 disable-model-invocation: true
 ---
 
-Invoke the agentic-code-reviewer:agentic-code-reviewer skill and follow it exactly as presented to you.
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"

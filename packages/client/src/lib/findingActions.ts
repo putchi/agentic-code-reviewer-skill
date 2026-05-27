@@ -1,0 +1,13 @@
+import type { FindingAction } from '@acr/shared';
+
+export const ACTION_OPTIONS: Array<{ value: FindingAction; label: string }> = [
+  { value: 'accept_fix', label: 'Accept fix' },
+  { value: 'ignore', label: 'Ignore' },
+  { value: 'create_follow_up_task', label: 'Follow-up task' },
+  { value: 'ask_claude_to_explain', label: 'Ask to explain' },
+  { value: 'ask_claude_to_implement', label: 'Ask to implement' },
+];
+
+export function actionLabel(action: FindingAction | '' | null | undefined): string {
+  return ACTION_OPTIONS.find(option => option.value === action)?.label ?? 'No action';
+}

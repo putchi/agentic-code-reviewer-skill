@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Finding, ReviewData } from '@acr/shared';
+import type { Finding, FindingAction, ReviewData } from '@acr/shared';
 import DiffViewer from '../DiffViewer/index';
 import ResultsView from './ResultsView';
 
@@ -9,6 +9,10 @@ interface Props {
   diffText: string;
   findings: Finding[];
   splitView: boolean;
+  selectedFindingId: string | null;
+  findingActions: Record<string, FindingAction | ''>;
+  onSelectFinding: (finding: Finding) => void;
+  onFindingAction: (id: string, action: FindingAction | '') => void;
   rightPanelOpen: boolean;
   onToggleSplit: () => void;
   onShowRightPanel: () => void;
@@ -60,8 +64,8 @@ function DiffTools() {
 }
 
 export default function CenterPanel({
-  data, selectedFile, diffText, findings, splitView, rightPanelOpen,
-  onToggleSplit, onShowRightPanel, onHelpModal, onAskAI, onFileDeselect,
+  data, selectedFile, diffText, findings, splitView, selectedFindingId, findingActions, rightPanelOpen,
+  onSelectFinding, onFindingAction, onToggleSplit, onShowRightPanel, onHelpModal, onAskAI, onFileDeselect,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('results');
 
@@ -107,11 +111,21 @@ export default function CenterPanel({
       </div>
       <div className="cp__content">
         {activeTab === 'results' ? (
-          <ResultsView data={data} />
+          <ResultsView
+            data={data}
+            selectedFindingId={selectedFindingId}
+            findingActions={findingActions}
+            onSelectFinding={onSelectFinding}
+            onFindingAction={onFindingAction}
+          />
         ) : (
           <DiffViewer
             file={selectedFile} diffText={diffText}
             findings={findings} splitView={splitView}
+            selectedFindingId={selectedFindingId}
+            findingActions={findingActions}
+            onSelectFinding={onSelectFinding}
+            onFindingAction={onFindingAction}
             onToggleSplit={onToggleSplit}
             rightPanelOpen={rightPanelOpen}
             onShowRightPanel={onShowRightPanel}

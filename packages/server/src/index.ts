@@ -12,11 +12,27 @@ import { loadSettings, saveSettings } from './settings';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLUGIN_ROOT } from './config';
+import { createServer } from 'node:net';
+
+async function pickPort(): Promise<number> {
+  if (portArg > 0) return portArg;
+  return await new Promise((resolvePort, reject) => {
+    const probe = createServer();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close(() => resolvePort(port));
+    });
+  });
+}
+
+const selectedPort = await pickPort();
 
 const onIdle = () => { console.log('Idle timeout — closing server.'); server.stop(); process.exit(0); };
 
 const server = Bun.serve({
-  port: portArg || 0,
+  port: selectedPort,
   hostname: '127.0.0.1',
   idleTimeout: 120,
   async fetch(req) {

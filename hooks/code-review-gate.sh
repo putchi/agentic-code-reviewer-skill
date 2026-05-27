@@ -64,6 +64,31 @@ if [ -f "$DONE_SENTINEL" ]; then
     exit 0
 fi
 
+# Background architecture completion check: a review run for this repo has reached
+# a state where the UI is ready or decisions have been saved. This is scoped to the
+# current git repo so old runs in other projects do not satisfy the gate.
+RUN_STATE=$(python3 - <<'PY' 2>/dev/null || true
+import glob, json, os
+root = os.popen('git rev-parse --show-toplevel 2>/dev/null').read().strip()
+if not root:
+    raise SystemExit(0)
+valid = {'awaiting_decisions', 'decisions_ready', 'no_changes', 'synthesis_complete', 'synthesis_failed'}
+for path in sorted(glob.glob(os.path.join(root, '.claude', 'review-runs', '*', 'run.json')), reverse=True):
+    try:
+        with open(path, encoding='utf-8') as fh:
+            data = json.load(fh)
+        if data.get('repo') == root and data.get('status') in valid:
+            print(data.get('status'))
+            break
+    except Exception:
+        pass
+PY
+)
+if [ -n "$RUN_STATE" ]; then
+    touch "$DONE_SENTINEL"
+    exit 0
+fi
+
 # Backward-compat fallback: if for some reason the skill couldn't write the .done
 # file (e.g. SESSION_ID was unavailable in its environment), still honor the legacy
 # marker — but only when present in the transcript file, not just any text.
