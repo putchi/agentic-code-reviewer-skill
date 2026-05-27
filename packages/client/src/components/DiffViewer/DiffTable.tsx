@@ -2,6 +2,7 @@ import type { Finding, FindingAction } from '@acr/shared';
 import type { DiffRow } from '../../lib/diff';
 import type { LineAnnotation } from '@acr/shared';
 import { annotKey } from '../../lib/annotKey';
+import { isImplementAction } from '../../lib/findingActions';
 
 interface Props {
   rows: DiffRow[];
@@ -30,7 +31,7 @@ export default function DiffTable({
   }
 
   return (
-    <table className="diff-table">
+    <table className={`diff-table${splitView ? ' diff-table--split' : ''}`}>
       <tbody>
         {rows.map((row, i) => {
           const isAdd = row.type === 'add';
@@ -82,13 +83,18 @@ export default function DiffTable({
                       e.stopPropagation();
                       onFindingAction(
                         lineFindings[0].id,
-                        findingActions[lineFindings[0].id] ? '' : 'ask_claude_to_implement'
+                        isImplementAction(findingActions[lineFindings[0].id]) ? '' : 'ask_claude_to_implement'
                       );
                     }}
                   >●</button>
                 )}
               </td>
-              <td>{isHunk ? <span style={{ color: 'var(--purple)' }}>{row.text}</span> : row.text}</td>
+              <td className="diff-code">
+                {!isHunk && (
+                  <span className="diff-code__sign">{isAdd ? '+' : isDel ? '-' : ' '}</span>
+                )}
+                <span className="diff-code__text">{row.text || ' '}</span>
+              </td>
             </tr>
           );
         })}

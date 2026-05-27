@@ -1,0 +1,122 @@
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { resolve } from 'node:path';
+import { PLUGIN_ROOT, runDir, runJsonFile, sessionId } from './config';
+import { resolveCLIPath } from './cli-path';
+
+interface AutoResumeResult {
+  started: boolean;
+  reason?: string;
+  host?: 'claude' | 'codex';
+  pid?: number;
+}
+
+function readRunMeta(): { repo: string; runId: string } {
+  const fallback = { repo: process.cwd(), runId: sessionId };
+  if (!runJsonFile || !existsSync(runJsonFile)) return fallback;
+  try {
+    const data = JSON.parse(readFileSync(runJsonFile, 'utf8')) as Record<string, unknown>;
+    return {
+      repo: typeof data.repo === 'string' && data.repo ? data.repo : fallback.repo,
+      runId: typeof data.run_id === 'string' && data.run_id ? data.run_id : fallback.runId,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function buildPrompt(repo: string, reviewRunId: string): string {
+  const resumeScript = resolve(PLUGIN_ROOT, 'scripts', 'review-resume.sh');
+  return [
+    'The Agentic Code Reviewer UI was closed after the user saved final decisions.',
+    'Resume immediately from those decisions and complete the requested work.',
+    '',
+    'First run this command and read its output:',
+    `bash "${resumeScript}" --repo "${repo}" --run-id "${reviewRunId}"`,
+    '',
+    'Then follow the printed instructions exactly.',
+    'Implement only findings marked for implementation or accepted fix.',
+    'Do not implement ignored/dismissed findings.',
+    'If no findings are selected for implementation, report that no code changes were requested.',
+  ].join('\n');
+}
+
+function writeAutoResumeState(result: AutoResumeResult) {
+  if (!runDir) return;
+  try {
+    writeFileSync(
+      resolve(runDir, 'auto-resume.json'),
+      JSON.stringify({ ...result, triggered_at: new Date().toISOString() }, null, 2),
+      'utf8'
+    );
+  } catch {}
+}
+
+export async function triggerAutoResume(): Promise<AutoResumeResult> {
+  if (process.env.ACR_DISABLE_AUTO_RESUME === '1') {
+    const result = { started: false, reason: 'disabled' };
+    writeAutoResumeState(result);
+    return result;
+  }
+  if (!runDir) {
+    const result = { started: false, reason: 'no run directory' };
+    writeAutoResumeState(result);
+    return result;
+  }
+
+  const { repo, runId: reviewRunId } = readRunMeta();
+  const prompt = buildPrompt(repo, reviewRunId);
+  const logPath = resolve(runDir, 'auto-resume.log');
+  let host: 'claude' | 'codex' | null = null;
+  let command = '';
+  let args: string[] = [];
+
+  if (process.env.CLAUDE_SESSION_ID) {
+    host = 'claude';
+    const resolved = await resolveCLIPath();
+    if (!resolved) {
+      const result = { started: false, host, reason: 'claude executable not found' };
+      writeAutoResumeState(result);
+      return result;
+    }
+    command = resolved;
+    args = ['--resume', process.env.CLAUDE_SESSION_ID, '--print', '--output-format', 'text', prompt];
+  } else if (process.env.CODEX_THREAD_ID) {
+    host = 'codex';
+    command = process.env.ACR_CODEX_BIN || 'codex';
+    args = ['exec', 'resume', process.env.CODEX_THREAD_ID, prompt];
+  }
+
+  if (!host || !command) {
+    const result = { started: false, reason: 'no Claude or Codex session id in environment' };
+    writeAutoResumeState(result);
+    return result;
+  }
+
+  let logFd: number | null = null;
+  try {
+    logFd = openSync(logPath, 'a');
+    const child = spawn(command, args, {
+      cwd: repo,
+      detached: true,
+      env: {
+        ...process.env,
+        ACR_AUTO_RESUME: '1',
+        ACR_REVIEW_SUBPROCESS: '1',
+      },
+      stdio: ['ignore', logFd, logFd],
+    });
+    child.unref();
+    const result = { started: true, host, pid: child.pid };
+    writeAutoResumeState(result);
+    return result;
+  } catch (error: any) {
+    const result = { started: false, host, reason: error?.message || 'spawn failed' };
+    writeAutoResumeState(result);
+    return result;
+  } finally {
+    if (logFd !== null) {
+      try { closeSync(logFd); } catch {}
+    }
+  }
+}

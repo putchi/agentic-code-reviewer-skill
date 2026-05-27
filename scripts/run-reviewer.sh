@@ -52,7 +52,7 @@ STARTED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.
 } > "$PROMPT_FILE"
 
 set +e
-(cd "$REPO" && "$CLAUDE_BIN" --print --output-format json < "$PROMPT_FILE" > "$RAW_FILE" 2> "${RAW_FILE}.stderr")
+(cd "$REPO" && ACR_REVIEW_SUBPROCESS=1 "$CLAUDE_BIN" --disable-slash-commands --tools "" --print --output-format json < "$PROMPT_FILE" > "$RAW_FILE" 2> "${RAW_FILE}.stderr")
 RC=$?
 set -e
 

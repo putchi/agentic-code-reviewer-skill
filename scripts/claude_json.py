@@ -204,15 +204,54 @@ def normalize_synthesis(args: argparse.Namespace) -> int:
     return 0
 
 
+def aggregate_reviewer_findings(out_file: str, agent_files: list[str]) -> list[dict]:
+    run_root = Path(out_file).parent
+    merged: dict[tuple[str, int, str], dict] = {}
+    for rel in agent_files:
+        path = run_root / rel
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+            continue
+        agent = str(data.get("agent") or Path(rel).stem)
+        for raw in data["findings"]:
+            if not isinstance(raw, dict):
+                continue
+            finding = normalize_synthesis_finding(raw, len(merged))
+            if not finding["finding"]:
+                continue
+            source_agents = finding.get("source_agents") or []
+            if agent and agent not in source_agents:
+                source_agents.append(agent)
+            finding["source_agents"] = source_agents
+            key = (finding["file"], finding["line"], finding["finding"].strip().lower())
+            if key in merged:
+                existing_agents = set(merged[key].get("source_agents") or [])
+                existing_agents.update(source_agents)
+                merged[key]["source_agents"] = sorted(existing_agents)
+                if merged[key]["severity"] != "CRITICAL" and finding["severity"] == "CRITICAL":
+                    merged[key]["severity"] = "CRITICAL"
+                continue
+            finding["id"] = f"f{len(merged) + 1}"
+            merged[key] = finding
+    return list(merged.values())
+
+
 def synthesis_fallback(args: argparse.Namespace) -> int:
+    findings = aggregate_reviewer_findings(args.out_file, args.agent_files)
+    next_actions = ["Inspect orchestrator.log and reviewer outputs before acting on this run."]
+    if findings:
+        next_actions.insert(0, "Review the raw reviewer findings; the synthesis model did not produce valid JSON.")
     write_atomic(Path(args.out_file), {
         "run_id": args.run_id,
         "two_sentence_verdict": args.verdict,
-        "deduped_findings": [],
+        "deduped_findings": findings,
         "dropped_findings_with_reason": [{"reason": args.error}],
         "contradictions_resolved": [],
         "severity_rationale": {},
-        "recommended_next_actions": ["Inspect orchestrator.log and reviewer outputs before acting on this run."],
+        "recommended_next_actions": next_actions,
         "source_agent_result_files": args.agent_files,
     })
     return 0

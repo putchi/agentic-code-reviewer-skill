@@ -45,9 +45,9 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
               <path d="M5 4.5V11.5"/>
               <path d="M5 4.5C5 7 11 6.5 11 6.5"/>
             </svg>
-            <span>{runMeta}</span>
-            {status && <><span className="dot" /><span>{status}</span></>}
-            {data?.resumeCommand && <><span className="dot" /><span>{data.resumeCommand}</span></>}
+            <span className="hdr__meta-item" title={runMeta}>{runMeta}</span>
+            {status && <><span className="dot" /><span className="hdr__meta-item hdr__meta-item--status" title={status}>{status}</span></>}
+            {data?.resumeCommand && <><span className="dot" /><span className="hdr__meta-item hdr__meta-item--resume" title={data.resumeCommand}>{data.resumeCommand}</span></>}
           </div>
         </div>
       </div>

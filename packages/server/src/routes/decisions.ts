@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { DecisionPayload, DecisionsFile, FindingDecision } from '@acr/shared';
 import { decisionFile, decisionsJsonFile, doneFile, runJsonFile } from '../config';
 import { readFindings, saveMarkdown } from '../findings';
+import { triggerAutoResume } from '../auto-resume';
 
 function normalizeDecision(payload: DecisionPayload, fallbackAction: 'implement' | 'save' | 'done'): DecisionsFile {
   const review = readFindings();
@@ -53,8 +54,9 @@ export async function handleImplement(payload: DecisionPayload): Promise<Respons
       const rd: any = readFindings(); rd._decision = decision;
       saveMarkdown(rd, payload.lineAnnotations || {});
     } catch {}
+    const autoResume = await triggerAutoResume();
     setTimeout(() => process.exit(0), 500);
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, autoResume });
   } catch (e: any) {
     return Response.json({ error: e.message }, { status: 500 });
   }
@@ -76,8 +78,9 @@ export async function handleDone(payload: DecisionPayload): Promise<Response> {
       const rd: any = readFindings(); rd._decision = decision;
       saveMarkdown(rd, payload.lineAnnotations || {});
     } catch {}
+    const autoResume = await triggerAutoResume();
     setTimeout(() => process.exit(0), 300);
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, autoResume });
   } catch (e: any) {
     return Response.json({ error: e.message }, { status: 500 });
   }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import type { ReviewData, Finding, FindingAction } from '@acr/shared';
-import { SevBadge } from '../atoms';
-import { ACTION_OPTIONS } from '../../lib/findingActions';
+import type { ReviewData, Finding, FindingAction, ReviewerResult } from '@acr/shared';
+import { Checkbox, SevBadge } from '../atoms';
+import { actionLabel, isImplementAction } from '../../lib/findingActions';
 
 interface Props {
   data: ReviewData | null;
@@ -17,6 +17,14 @@ const DIMENSIONS: Record<string, { id: string; name: string; desc: string; icon:
   'architecture': { id: 'architecture',  name: 'Architecture',     desc: 'module boundaries & design', icon: 'layers' },
   'tests':        { id: 'tests',         name: 'Test Coverage',    desc: 'coverage gaps & quality',    icon: 'flask' },
   'senior-dev':   { id: 'senior-dev',    name: 'Senior Dev',       desc: 'conventions & code quality', icon: 'graduation' },
+};
+
+const REVIEWERS: Record<string, { name: string; desc: string; icon: string }> = {
+  'semantic-analyzer':      { name: 'Semantic Analyzer',      desc: 'correctness and data flow',       icon: 'code' },
+  'security-scanner':       { name: 'Security Scanner',       desc: 'vulnerabilities and exposure',    icon: 'shield' },
+  'architecture-reviewer':  { name: 'Architecture Reviewer',  desc: 'module boundaries and design',    icon: 'layers' },
+  'test-coverage-analyzer': { name: 'Test Coverage Analyzer', desc: 'coverage gaps and quality',       icon: 'flask' },
+  'senior-dev-reviewer':    { name: 'Senior Dev Reviewer',    desc: 'conventions and code quality',    icon: 'graduation' },
 };
 
 function DimIcon({ icon }: { icon: string }) {
@@ -90,9 +98,17 @@ function FindingCard({ f, selected, action, onSelect, onFindingAction }: Finding
   const slashIdx = filePart.lastIndexOf('/');
   const dir = slashIdx >= 0 ? filePart.slice(0, slashIdx + 1) : '';
   const filename = slashIdx >= 0 ? filePart.slice(slashIdx + 1) : filePart;
+  const markedForImplement = isImplementAction(action);
 
   return (
     <div className="card" data-selected={selected ? true : undefined}>
+      <div className="card__check">
+        <Checkbox
+          checked={markedForImplement}
+          ariaLabel={markedForImplement ? 'Deselect finding for implementation' : 'Select finding for implementation'}
+          onChange={checked => onFindingAction(f.id, checked ? 'ask_claude_to_implement' : '')}
+        />
+      </div>
       <div className="card__main">
         <div className="card__row1">
           <SevBadge severity={f.severity} />
@@ -112,17 +128,9 @@ function FindingCard({ f, selected, action, onSelect, onFindingAction }: Finding
         <p className="card__reason">{f.reasoning ?? ''}</p>
       </div>
       <div className="card__actions">
-        <select
-          className="finding__action"
-          value={action}
-          aria-label={`Action for finding ${f.finding}`}
-          onChange={e => onFindingAction(f.id, e.target.value as FindingAction | '')}
-        >
-          <option value="">No action</option>
-          {ACTION_OPTIONS.map(option => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
+        <span className={`finding__decision finding__decision--wide${markedForImplement ? ' finding__decision--implement' : action === 'ignore' ? ' finding__decision--dismiss' : ''}`}>
+          {actionLabel(action)}
+        </span>
         <button className="btn btn--sm" onClick={() => onSelect(f)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -204,6 +212,81 @@ function DimensionGroup({ dim, items, selectedFindingId, findingActions, onSelec
   );
 }
 
+interface ReviewerGroupProps {
+  result: ReviewerResult;
+  onSelectFinding: (finding: Finding) => void;
+}
+
+function ReviewerFindingCard({ f, onSelect }: { f: Finding; onSelect: (finding: Finding) => void }) {
+  const loc = f.location || `${f.file}:${f.line || ''}`;
+  return (
+    <div className="card card--reviewer">
+      <div className="card__main">
+        <div className="card__row1">
+          <SevBadge severity={f.severity} />
+          <span className="card__loc" title={loc}>{loc}</span>
+        </div>
+        <h3 className="card__title">{f.finding}</h3>
+        {f.reasoning && <p className="card__reason">{f.reasoning}</p>}
+        {f.evidence && <p className="card__evidence mono">{f.evidence}</p>}
+      </div>
+      <div className="card__actions">
+        <button className="btn btn--sm" onClick={() => onSelect(f)}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+          Open diff
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewerGroup({ result, onSelectFinding }: ReviewerGroupProps) {
+  const hasFindings = result.findings.length > 0;
+  const failed = result.status === 'failed';
+  const [open, setOpen] = useState(hasFindings || failed);
+  const meta = REVIEWERS[result.agent] ?? { name: result.agent, desc: '', icon: 'code' };
+
+  return (
+    <div className={`dim${open ? ' dim--open' : ''}`} data-open={open ? 'true' : undefined}>
+      <button className="dim__head" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+        <span className="dim__chev" style={{ transform: open ? 'rotate(90deg)' : undefined }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </span>
+        <span className="dim__title">
+          <span style={{ color: 'var(--fg-faint)' }}><DimIcon icon={meta.icon} /></span>
+          <span className="dim__name">{meta.name}</span>
+          <span className="dim__desc">{meta.desc}</span>
+        </span>
+        <span className="dim__meta">
+          <span className={`reviewer-status reviewer-status--${result.status}`}>{result.status}</span>
+          <span className="dim__count">{result.findings.length} finding{result.findings.length !== 1 ? 's' : ''}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="dim__body">
+          {failed && (
+            <div className="reviewer-empty reviewer-empty--error">
+              {result.error || 'Reviewer failed without an error message.'}
+            </div>
+          )}
+          {!failed && !hasFindings && (
+            <div className="reviewer-empty">No findings from this reviewer.</div>
+          )}
+          {result.findings.map(f => (
+            <ReviewerFindingCard key={`${result.agent}:${f.id}`} f={f} onSelect={onSelectFinding} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResultsView({ data, selectedFindingId, findingActions, onSelectFinding, onFindingAction }: Props) {
   if (!data) {
     return (
@@ -218,7 +301,9 @@ export default function ResultsView({ data, selectedFindingId, findingActions, o
   const noteCount = data.findings.filter(f => f.severity === 'NOTE').length;
 
   const v = (data.verdict ?? '').toLowerCase();
-  const verdictLabel = v.includes('critical')
+  const verdictLabel = data.synthesisStatus === 'synthesis_failed'
+    ? 'Synthesis Failed'
+    : v.includes('critical')
     ? 'Critical Issues'
     : v.includes('high')
     ? 'Needs Attention'
@@ -262,6 +347,22 @@ export default function ResultsView({ data, selectedFindingId, findingActions, o
           </div>
         </div>
       </div>
+
+      {(data.reviewerResults?.length ?? 0) > 0 && (
+        <>
+          <div className="results__section-head">
+            <span>Reviewer agents</span>
+            <span className="line" />
+          </div>
+          {data.reviewerResults!.map(result => (
+            <ReviewerGroup
+              key={result.agent}
+              result={result}
+              onSelectFinding={onSelectFinding}
+            />
+          ))}
+        </>
+      )}
 
       {groups.size > 0 && (
         <>

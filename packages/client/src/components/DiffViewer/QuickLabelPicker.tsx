@@ -18,7 +18,7 @@ export default function QuickLabelPicker({ selection, anchorRect, onPick, onClos
       {LABELS.map(l => (
         <button key={l} className="label-opt" onClick={() => { onPick(l); onClose(); }}>{l}</button>
       ))}
-      <button className="label-opt" style={{ color: 'var(--text-dim)' }} onClick={onClose}>Cancel</button>
+      <button className="label-opt" style={{ color: 'var(--fg-faint)' }} onClick={onClose}>Cancel</button>
     </div>
   );
 }

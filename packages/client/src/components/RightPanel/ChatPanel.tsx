@@ -12,6 +12,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
   const [draft, setDraft] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const isBusy = streaming;
 
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -25,7 +26,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
 
   function handleSend(text?: string) {
     const msg = (text ?? draft).trim();
-    if (!msg || streaming) return;
+    if (!msg || isBusy) return;
     if (!text) setDraft('');
     send(msg, currentFile);
   }
@@ -75,7 +76,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
       {messages.length === 0 && (
         <div className="chat__suggestions">
           {['Summarize the critical findings', 'Which fixes should I do first?', 'Are any of these false positives?'].map(s => (
-            <button key={s} className="chat__sugg" onClick={() => handleSend(s)}>
+            <button key={s} className="chat__sugg" onClick={() => handleSend(s)} disabled={isBusy}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 3l1.5 5H18l-4.5 3.5L15 17l-3-2.5L9 17l1.5-5.5L6 8h4.5z"/>
               </svg>
@@ -85,13 +86,20 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
         </div>
       )}
 
-      <div className="chat__composer">
+      <div className={`chat__composer${isBusy ? ' chat__composer--busy' : ''}`}>
+        {isBusy && (
+          <div className="chat__thinking" role="status" aria-live="polite">
+            <span className="chat__thinking-spinner" aria-hidden="true" />
+            <span>Thinking… Ask again when done.</span>
+          </div>
+        )}
         <div className="chat__composer-box">
           <textarea
             ref={taRef}
             rows={1}
-            placeholder="Ask Claude about a finding, the diff, or your fix plan…"
+            placeholder={isBusy ? 'Waiting for Claude…' : 'Ask Claude about a finding, the diff, or your fix plan…'}
             value={draft}
+            disabled={isBusy}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -118,7 +126,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
               <button
                 className="chat__send"
                 onClick={() => handleSend()}
-                disabled={!draft.trim() || streaming}
+                disabled={!draft.trim() || isBusy}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="22" y1="2" x2="11" y2="13"/>

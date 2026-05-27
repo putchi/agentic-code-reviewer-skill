@@ -3,6 +3,7 @@ import type { DecisionsFile, FindingAction } from './decisions';
 export type ResumeBuckets = Record<FindingAction, string[]>;
 
 export function bucketDecisionActions(decisions: DecisionsFile): ResumeBuckets {
+  // Temporary smoke edit: gives the installed review launcher a tracked diff to inspect.
   const buckets: ResumeBuckets = {
     accept_fix: [],
     ignore: [],

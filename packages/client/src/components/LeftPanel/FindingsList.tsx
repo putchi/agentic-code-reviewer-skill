@@ -1,6 +1,6 @@
 import type { Finding, FindingAction } from '@acr/shared';
-import { SevBadge } from '../atoms';
-import { ACTION_OPTIONS } from '../../lib/findingActions';
+import { Checkbox, SevBadge } from '../atoms';
+import { actionLabel, isImplementAction } from '../../lib/findingActions';
 
 interface Props {
   findings: Finding[];
@@ -23,6 +23,7 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
       {findings.map(f => {
         const selected = selectedId === f.id;
         const action = findingActions[f.id] || '';
+        const markedForImplement = isImplementAction(action);
 
         const parts = f.file.split('/');
         const fileLast = parts.pop() ?? f.file;
@@ -38,6 +39,13 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
             data-action={action || undefined}
             onClick={() => onSelect(f)}
           >
+            <div className="finding__check">
+              <Checkbox
+                checked={markedForImplement}
+                ariaLabel={markedForImplement ? 'Deselect finding for implementation' : 'Select finding for implementation'}
+                onChange={checked => onFindingAction(f.id, checked ? 'ask_claude_to_implement' : '')}
+              />
+            </div>
             <div className="finding__body">
               <div className="finding__row1">
                 <SevBadge severity={f.severity} />
@@ -47,18 +55,9 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
               </div>
               <div className="finding__title">{f.finding}</div>
             </div>
-            <select
-              className="finding__action"
-              value={action}
-              aria-label={`Action for finding ${f.finding}`}
-              onClick={e => e.stopPropagation()}
-              onChange={e => onFindingAction(f.id, e.target.value as FindingAction | '')}
-            >
-              <option value="">No action</option>
-              {ACTION_OPTIONS.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            <span className={`finding__decision${markedForImplement ? ' finding__decision--implement' : action === 'ignore' ? ' finding__decision--dismiss' : ''}`}>
+              {actionLabel(action)}
+            </span>
           </div>
         );
       })}

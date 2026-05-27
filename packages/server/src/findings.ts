@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DecisionsFile, FileEntry, LineAnnotation, ReviewData, RunContext, SynthesisResult } from '@acr/shared';
+import { REVIEW_AGENTS } from '@acr/shared';
+import type { DecisionsFile, FileEntry, LineAnnotation, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
 import { findingsFile, runDir, saveDir, sessionId } from './config';
 
 function parseJsonFile<T>(file: string | null): T | null {
@@ -52,6 +53,46 @@ function readRunStatus(runPath: string | null): string | undefined {
   return run?.status;
 }
 
+function normalizeReviewerResult(raw: RawReviewerResult): ReviewerResult {
+  return {
+    agent: raw.agent,
+    status: raw.status,
+    error: raw.error,
+    startedAt: raw.started_at,
+    completedAt: raw.completed_at,
+    findings: (raw.findings || []).map((f, index) => ({
+      id: f.id || `${raw.agent}-${index + 1}`,
+      severity: f.severity || 'HIGH',
+      file: f.file || '',
+      line: Number(f.line || 0),
+      location: f.location || `${f.file || ''}:${f.line || 0}`,
+      finding: f.finding || '',
+      reasoning: f.reasoning,
+      evidence: f.evidence,
+      source_agents: [raw.agent],
+    })),
+  };
+}
+
+function readReviewerResults(dir: string): ReviewerResult[] {
+  const agentDir = join(dir, 'agents');
+  const anyAgentFile = REVIEW_AGENTS.some(agent => existsSync(join(agentDir, `${agent}.json`)));
+  if (!anyAgentFile) return [];
+
+  return REVIEW_AGENTS.map(agent => {
+    const result = parseJsonFile<RawReviewerResult>(join(agentDir, `${agent}.json`));
+    if (!result) {
+      return {
+        agent,
+        status: 'failed',
+        error: 'Reviewer result file was not written.',
+        findings: [],
+      };
+    }
+    return normalizeReviewerResult(result);
+  });
+}
+
 export function readReviewFromRunDir(dir: string): ReviewData | null {
   const synthesisPath = join(dir, 'synthesis.json');
   const contextPath = join(dir, 'context.json');
@@ -75,6 +116,7 @@ export function readReviewFromRunDir(dir: string): ReviewData | null {
       source_agents: f.source_agents || [],
     })),
     files: readRunFiles(contextPath, diffPath),
+    reviewerResults: readReviewerResults(dir),
     summary: (synthesis.recommended_next_actions || []).join('\n'),
     timestamp: context?.timestamp || new Date().toISOString(),
     branch: context?.branch || '',

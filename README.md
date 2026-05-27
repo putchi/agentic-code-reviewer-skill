@@ -185,6 +185,8 @@ After the Synthesizer prints its report, the skill launches a self-contained bin
 
 **First-run modal** — shown on first launch to configure chat model and auto-close preference.
 
+**Session status polling** — after launch, the command prints a compact status line every 20 seconds until the review UI is ready. Set `ACR_STATUS_POLL=0` to disable polling, or `ACR_STATUS_INTERVAL_SECONDS=30` to slow it down.
+
 **Update toast** — shown when a newer version is available, with a one-click copy of the install command.
 
 ### Keyboard shortcuts

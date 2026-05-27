@@ -11,10 +11,19 @@ export interface Finding {
   source_agents?: string[];
 }
 export interface FileEntry { path: string; diff: string; add?: number; del?: number; }
+export interface ReviewerResult {
+  agent: string;
+  status: 'complete' | 'failed';
+  error?: string | null;
+  findings: Finding[];
+  startedAt?: string;
+  completedAt?: string;
+}
 export interface ReviewData {
   verdict: string;
   findings: Finding[];
   files?: FileEntry[];
+  reviewerResults?: ReviewerResult[];
   summary: string;
   timestamp: string;
   branch: string;

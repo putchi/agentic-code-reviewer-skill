@@ -1,9 +1,9 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import type { Finding, FindingAction } from '@acr/shared';
 import type { LineAnnotation } from '@acr/shared';
 import { parseDiff } from '../../lib/diff';
 import { annotKey } from '../../lib/annotKey';
-import { useAnnotations, type AnnotMode, type Selection } from '../../hooks/useAnnotations';
+import { type AnnotMode, type Selection } from '../../hooks/useAnnotations';
 import DiffTable from './DiffTable';
 import AnnotationToolstrip from './AnnotationToolstrip';
 import MiniToolbar from './MiniToolbar';
@@ -24,13 +24,14 @@ interface Props {
   onShowRightPanel: () => void;
   onHelpModal: () => void;
   onAskAI: (prompt: string) => void;
+  annotations: Record<string, LineAnnotation>;
+  onAddAnnotation: (sel: Selection, type: LineAnnotation['type'], text: string) => void;
 }
 
 export default function DiffViewer({
   file, diffText, findings, splitView, selectedFindingId, findingActions, onSelectFinding, onFindingAction, onToggleSplit,
-  rightPanelOpen, onShowRightPanel, onHelpModal, onAskAI,
+  rightPanelOpen, onShowRightPanel, onHelpModal, onAskAI, annotations, onAddAnnotation,
 }: Props) {
-  const { annotations, addAnnotation, removeAnnotation } = useAnnotations();
   const [mode, setMode] = useState<AnnotMode>('markup');
   const [pinpoint, setPinpoint] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -63,7 +64,7 @@ export default function DiffViewer({
       setAnchorRect(rect);
       if (mode === 'markup') setShowMini(true);
       else if (mode === 'comment') setShowComment(true);
-      else if (mode === 'redline') { addAnnotation(sel, 'REDLINE', '~~redline~~'); clearSelection(); }
+      else if (mode === 'redline') { onAddAnnotation(sel, 'REDLINE', '~~redline~~'); clearSelection(); }
       else if (mode === 'quickLabel') setShowLabel(true);
       return;
     }
@@ -107,12 +108,6 @@ export default function DiffViewer({
     setShowComment(true);
   }
 
-  function handlePrevFinding() {
-    const fileFindings = findings.filter(f => f.file === file);
-    if (!fileFindings.length) return;
-    // navigate to prev finding in this file — scroll to row
-  }
-
   return (
     <>
       <div className="diff-toolbar">
@@ -145,7 +140,18 @@ export default function DiffViewer({
             onFindingAction={onFindingAction}
             splitView={splitView} />
         ) : (
-          <div className="empty-state">Select a finding or file to view diff</div>
+          <div className="diff__empty">
+            <div className="diff__empty-inner">
+              <div className="diff__empty-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="16 18 22 12 16 6" />
+                  <polyline points="8 6 2 12 8 18" />
+                </svg>
+              </div>
+              <div className="diff__empty-title">No diff selected</div>
+              <div className="diff__empty-sub">Choose a finding or file from the left panel to inspect the changed lines.</div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -153,20 +159,20 @@ export default function DiffViewer({
         <MiniToolbar selection={selection} anchorRect={anchorRect}
           onComment={() => { setShowMini(false); setShowComment(true); }}
           onAskAI={text => { onAskAI(text); setShowMini(false); clearSelection(); }}
-          onRedline={() => { if (selection) addAnnotation(selection, 'REDLINE', '~~redline~~'); clearSelection(); }}
+          onRedline={() => { if (selection) onAddAnnotation(selection, 'REDLINE', '~~redline~~'); clearSelection(); }}
           onCancel={clearSelection} />
       )}
       {showComment && (
         <CommentPopover selection={selection} anchorRect={anchorRect}
           draftKey={selection ? annotKey(selection.file, selection.lineStart, selection.lineEnd, selection.side) : undefined}
           initialText={selection ? (annotations[annotKey(selection.file, selection.lineStart, selection.lineEnd, selection.side)]?.text ?? '') : ''}
-          onSave={text => { if (selection && text) addAnnotation(selection, 'COMMENT', text); }}
+          onSave={text => { if (selection && text) onAddAnnotation(selection, 'COMMENT', text); }}
           onAskAI={prompt => onAskAI(prompt)}
           onClose={clearSelection} />
       )}
       {showLabel && (
         <QuickLabelPicker selection={selection} anchorRect={anchorRect}
-          onPick={label => { if (selection) addAnnotation(selection, 'LABEL', label); }}
+          onPick={label => { if (selection) onAddAnnotation(selection, 'LABEL', label); }}
           onClose={clearSelection} />
       )}
     </>

@@ -5,7 +5,7 @@ import { ToggleSwitch } from '../atoms';
 
 interface Props {
   settings: Settings;
-  onSave: (patch: Partial<Settings>) => void;
+  onSave: (patch: Partial<Settings>) => Promise<Settings> | Settings | void;
 }
 
 const MODELS = [
@@ -38,24 +38,27 @@ export default function FirstRunModal({ settings, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  function handleSave() {
+  async function persist(patch: Partial<Settings>) {
     if (saving || saved) return;
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      await onSave(patch);
       setSaved(true);
-      setTimeout(() => {
-        onSave({
-          chatModel,
-          autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
-          firstRunDone: true,
-        });
-      }, 700);
-    }, 280);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSave() {
+    void persist({
+      chatModel,
+      autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
+      firstRunDone: true,
+    });
   }
 
   function handleSkip() {
-    onSave({ firstRunDone: true });
+    void persist({ firstRunDone: true });
   }
 
   function clampSec(val: number) {
@@ -144,7 +147,7 @@ export default function FirstRunModal({ settings, onSave }: Props) {
         ) : (
           <div className="modal__foot">
             <div className="modal__foot-meta">You can change these anytime via the ≡ menu.</div>
-            <button className="btn btn--ghost" onClick={handleSkip}>Skip</button>
+            <button className="btn btn--ghost" onClick={handleSkip} disabled={saving}>Skip</button>
             <button className="btn btn--cta" onClick={handleSave} disabled={saving}>
               Save &amp; continue
             </button>

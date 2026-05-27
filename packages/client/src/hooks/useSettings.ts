@@ -21,10 +21,19 @@ export function useSettings() {
   }, [load]);
 
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
-    setSettings(prev => ({ ...prev, ...patch }));
-    const updated = await patchSettings(patch);
-    setSettings(updated);
-    return updated;
+    let rollback: Settings | null = null;
+    setSettings(prev => {
+      rollback = prev;
+      return { ...prev, ...patch };
+    });
+    try {
+      const updated = await patchSettings(patch);
+      setSettings(updated);
+      return updated;
+    } catch (error) {
+      if (rollback) setSettings(rollback);
+      throw error;
+    }
   }, []);
 
   return { settings, updateSettings, isLoading };

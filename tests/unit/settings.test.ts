@@ -1,19 +1,34 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { unlinkSync, existsSync, writeFileSync, copyFileSync } from 'node:fs';
+import { writeFileSync, copyFileSync, mkdtempSync, rmSync, mkdirSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { PLUGIN_ROOT } from '../../packages/server/src/config';
-import { loadSettings, saveSettings } from '../../packages/server/src/settings';
+import { loadSettings, resolveSettingsFile, saveSettings } from '../../packages/server/src/settings';
 
-const REAL_SETTINGS_FILE = resolve(PLUGIN_ROOT, 'settings.json');
 const DEFAULT_FX = '/tmp/claude-code-review-unknown.json';
+let settingsDir = '';
 
 function cleanSettings() {
-  if (existsSync(REAL_SETTINGS_FILE)) unlinkSync(REAL_SETTINGS_FILE);
+  if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
+  settingsDir = mkdtempSync(resolve(tmpdir(), 'acr-settings-test-'));
+  process.env.ACR_SETTINGS_DIR = settingsDir;
+}
+
+function settingsFile() {
+  return resolveSettingsFile();
+}
+
+function writeSettings(data: unknown) {
+  mkdirSync(settingsDir, { recursive: true });
+  writeFileSync(settingsFile(), typeof data === 'string' ? data : JSON.stringify(data));
 }
 
 describe('loadSettings', () => {
   beforeEach(cleanSettings);
-  afterEach(cleanSettings);
+  afterEach(() => {
+    if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
+    delete process.env.ACR_SETTINGS_DIR;
+    settingsDir = '';
+  });
 
   test('returns defaults when file does not exist', () => {
     const s = loadSettings();
@@ -23,7 +38,7 @@ describe('loadSettings', () => {
   });
 
   test('merges file values with defaults (missing keys filled in)', () => {
-    writeFileSync(REAL_SETTINGS_FILE, JSON.stringify({ chatModel: 'claude-opus-4-7' }));
+    writeSettings({ chatModel: 'claude-opus-4-7' });
     const s = loadSettings();
     expect(s.chatModel).toBe('claude-opus-4-7');
     expect(s.autoCloseMs).toBe(0);
@@ -31,7 +46,7 @@ describe('loadSettings', () => {
   });
 
   test('returns defaults when settings file has invalid JSON', () => {
-    writeFileSync(REAL_SETTINGS_FILE, 'NOT_VALID_JSON');
+    writeSettings('NOT_VALID_JSON');
     const s = loadSettings();
     expect(s.autoCloseMs).toBe(0);
     expect(s.chatModel).toBe('claude-sonnet-4-6');
@@ -40,7 +55,11 @@ describe('loadSettings', () => {
 
 describe('saveSettings', () => {
   beforeEach(cleanSettings);
-  afterEach(cleanSettings);
+  afterEach(() => {
+    if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
+    delete process.env.ACR_SETTINGS_DIR;
+    settingsDir = '';
+  });
 
   test('persists only changed key; others remain at default', () => {
     saveSettings({ chatModel: 'claude-opus-4-7' });
@@ -67,7 +86,9 @@ describe('settings response shape', () => {
     copyFileSync('tests/fixtures/sample-review.json', DEFAULT_FX);
   });
   afterEach(() => {
-    cleanSettings();
+    if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
+    delete process.env.ACR_SETTINGS_DIR;
+    settingsDir = '';
     try { unlinkSync(DEFAULT_FX); } catch {}
   });
 

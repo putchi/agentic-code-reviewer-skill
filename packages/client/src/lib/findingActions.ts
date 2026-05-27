@@ -11,3 +11,7 @@ export const ACTION_OPTIONS: Array<{ value: FindingAction; label: string }> = [
 export function actionLabel(action: FindingAction | '' | null | undefined): string {
   return ACTION_OPTIONS.find(option => option.value === action)?.label ?? 'No action';
 }
+
+export function isImplementAction(action: FindingAction | '' | null | undefined): boolean {
+  return action === 'ask_claude_to_implement' || action === 'accept_fix';
+}

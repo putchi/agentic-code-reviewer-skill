@@ -38,6 +38,34 @@ describe('handleReview', () => {
         timestamp: '2026-05-27T00:00:00Z',
         files: [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-old\n+new' }],
       }));
+      writeFileSync(resolve(runDir, 'agents', 'semantic-analyzer.json'), JSON.stringify({
+        run_id: 'r1',
+        agent: 'semantic-analyzer',
+        status: 'complete',
+        started_at: '2026-05-27T00:00:00Z',
+        completed_at: '2026-05-27T00:00:01Z',
+        error: null,
+        findings: [{
+          id: 'semantic-1',
+          severity: 'HIGH',
+          file: 'src/a.ts',
+          line: 1,
+          location: 'src/a.ts:1',
+          finding: 'Raw semantic finding',
+          reasoning: 'Raw reason',
+          evidence: 'new',
+          confidence: 91,
+        }],
+      }));
+      writeFileSync(resolve(runDir, 'agents', 'security-scanner.json'), JSON.stringify({
+        run_id: 'r1',
+        agent: 'security-scanner',
+        status: 'complete',
+        started_at: '2026-05-27T00:00:00Z',
+        completed_at: '2026-05-27T00:00:01Z',
+        error: null,
+        findings: [],
+      }));
       writeFileSync(resolve(runDir, 'synthesis.json'), JSON.stringify({
         run_id: 'r1',
         two_sentence_verdict: 'Needs one fix. Address f1 first.',
@@ -65,6 +93,9 @@ describe('handleReview', () => {
       expect(data.files?.[0].path).toBe('src/a.ts');
       expect(data.resumeCommand).toBe('/review-resume r1');
       expect(data.synthesisStatus).toBe('awaiting_decisions');
+      expect(data.reviewerResults?.map(r => r.agent)).toContain('security-scanner');
+      expect(data.reviewerResults?.find(r => r.agent === 'semantic-analyzer')?.findings).toHaveLength(1);
+      expect(data.reviewerResults?.find(r => r.agent === 'security-scanner')?.findings).toHaveLength(0);
     } finally {
       rmSync(runDir, { recursive: true, force: true });
     }

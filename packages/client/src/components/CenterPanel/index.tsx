@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import type { Finding, FindingAction, ReviewData } from '@acr/shared';
+import type { Finding, FindingAction, LineAnnotation, ReviewData } from '@acr/shared';
+import type { Selection } from '../../hooks/useAnnotations';
 import DiffViewer from '../DiffViewer/index';
 import ResultsView from './ResultsView';
 
@@ -18,6 +19,8 @@ interface Props {
   onShowRightPanel: () => void;
   onHelpModal: () => void;
   onAskAI: (prompt: string) => void;
+  annotations: Record<string, LineAnnotation>;
+  onAddAnnotation: (sel: Selection, type: LineAnnotation['type'], text: string) => void;
   onFileDeselect: () => void;
 }
 
@@ -65,7 +68,8 @@ function DiffTools() {
 
 export default function CenterPanel({
   data, selectedFile, diffText, findings, splitView, selectedFindingId, findingActions, rightPanelOpen,
-  onSelectFinding, onFindingAction, onToggleSplit, onShowRightPanel, onHelpModal, onAskAI, onFileDeselect,
+  onSelectFinding, onFindingAction, onToggleSplit, onShowRightPanel, onHelpModal, onAskAI,
+  annotations, onAddAnnotation, onFileDeselect,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('results');
 
@@ -130,7 +134,9 @@ export default function CenterPanel({
             rightPanelOpen={rightPanelOpen}
             onShowRightPanel={onShowRightPanel}
             onHelpModal={onHelpModal}
-            onAskAI={onAskAI} />
+            onAskAI={onAskAI}
+            annotations={annotations}
+            onAddAnnotation={onAddAnnotation} />
         )}
       </div>
     </div>

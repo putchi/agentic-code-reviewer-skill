@@ -32,7 +32,7 @@ export default function HelpModal({ onClose }: Props) {
               <h3>Keyboard shortcuts</h3>
               <ul>
                 <li><code>j</code> / <code>k</code> — next / previous finding</li>
-                <li><code>Space</code> — toggle implement action on active finding</li>
+                <li><code>Space</code> — select active finding for implementation</li>
                 <li><code>Enter</code> — view diff for active finding</li>
                 <li><code>Escape</code> — close any open popover / modal</li>
               </ul>
@@ -40,11 +40,13 @@ export default function HelpModal({ onClose }: Props) {
           ) : (
             <>
               <h3>Decision actions</h3>
-              <p>Each finding is saved with one action for Claude to apply after <code>/review-resume</code>.</p>
-              <h3>Save</h3>
+              <p>Selected findings are saved for implementation. Dismissed findings are saved with your reason.</p>
+              <h3>Implement</h3>
+              <p>Saves final decisions, closes the tab, and resumes the agent from the saved review run.</p>
+              <h3>Save only</h3>
               <p>Saves a Markdown review summary to <code>docs/code-reviews/</code>. Keeps the server running.</p>
               <h3>Done</h3>
-              <p>Closes the review without implementing. Writes the decision file and exits.</p>
+              <p>Closes the review without choosing new implementation work.</p>
               <h3>Chat</h3>
               <p>Ask Claude about the diff. Uses the current model (configurable in Settings). The system prompt includes the full diff and all findings.</p>
             </>

@@ -47,7 +47,7 @@ export default function GlobalCommentPopover({ value, onSave, onClose, anchorRef
         zIndex: 200,
         width: '400px',
         background: 'var(--bg-panel)',
-        border: '1px solid var(--border)',
+        border: '1px solid var(--border-default)',
         borderRadius: '8px',
         boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
         display: 'flex',
@@ -55,18 +55,18 @@ export default function GlobalCommentPopover({ value, onSave, onClose, anchorRef
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px 8px', borderBottom: '1px solid var(--border)' }}>
-        <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>Global Comment</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--fg-strong)' }}>Global Comment</span>
         <div style={{ display: 'flex', gap: '6px' }}>
           <button
             title="Expand to right panel"
             onClick={() => { onSave(text); if (onAskAI) onAskAI(text); onClose(); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: '14px', padding: '2px 4px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-faint)', fontSize: '14px', padding: '2px 4px' }}
           >⤢</button>
           <button
             title="Close"
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: '16px', padding: '2px 4px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg-faint)', fontSize: '16px', padding: '2px 4px' }}
           >×</button>
         </div>
       </div>
@@ -80,9 +80,9 @@ export default function GlobalCommentPopover({ value, onSave, onClose, anchorRef
           style={{
             width: '100%',
             boxSizing: 'border-box',
-            background: 'var(--bg)',
-            color: 'var(--text)',
-            border: '1px solid var(--blue)',
+            background: 'var(--bg-input)',
+            color: 'var(--fg-default)',
+            border: '1px solid var(--border-focus)',
             borderRadius: '4px',
             padding: '8px',
             fontSize: '13px',
@@ -92,17 +92,17 @@ export default function GlobalCommentPopover({ value, onSave, onClose, anchorRef
           }}
         />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid var(--border)', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid var(--border-subtle)', gap: '8px' }}>
         {onAskAI && (
           <button
             onClick={() => { onSave(text); onAskAI(text); onClose(); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--blue)', fontSize: '12px', padding: '4px 8px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '12px', padding: '4px 8px' }}
             title="Open in chat panel"
           >✦ Ask AI</button>
         )}
         <button
           onClick={handleAdd}
-          style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+          style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '4px', padding: '6px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
         >Add</button>
       </div>
     </div>

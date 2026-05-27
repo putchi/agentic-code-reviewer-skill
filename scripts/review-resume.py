@@ -91,6 +91,8 @@ def main() -> int:
         ids = buckets[action]
         if ids:
             print(f"{action} ({len(ids)}): {', '.join(ids)}")
+    if not buckets["ask_claude_to_implement"] and not buckets["accept_fix"]:
+        print("No findings are selected for implementation.")
     if decisions.get("global_comment"):
         print(f"Note: {decisions['global_comment']}")
     print()

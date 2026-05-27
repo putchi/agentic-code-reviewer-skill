@@ -17,6 +17,13 @@
 
 INPUT=$(cat)
 
+# Reviewer and synthesizer subprocesses are already part of an active
+# agentic-code-reviewer run. Let them terminate normally instead of recursively
+# triggering this gate and asking to launch another orchestrator.
+if [ "${ACR_REVIEW_SUBPROCESS:-}" = "1" ]; then
+    exit 0
+fi
+
 SESSION_ID=$(echo "$INPUT" | python3 -c "
 import sys, json
 try:

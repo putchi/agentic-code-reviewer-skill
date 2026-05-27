@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import type { Finding, FileEntry, FindingAction } from '@acr/shared';
 import FindingsList from './FindingsList';
 import FilesList from './FilesList';
+import { ACTION_OPTIONS } from '../../lib/findingActions';
 
 interface Props {
   findings: Finding[];
@@ -12,11 +13,13 @@ interface Props {
   onSelectFinding: (f: Finding) => void;
   onSelectFile: (path: string) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
+  onBatchAction: (action: FindingAction | 'clear') => void;
+  batchDisabled?: boolean;
 }
 
 export default function LeftPanel({
   findings, files, selectedFindingId, selectedFile, findingActions,
-  onSelectFinding, onSelectFile, onFindingAction,
+  onSelectFinding, onSelectFile, onFindingAction, onBatchAction, batchDisabled = false,
 }: Props) {
   const [tab, setTab] = useState<'findings' | 'files'>('findings');
   const [query, setQuery] = useState('');
@@ -51,6 +54,32 @@ export default function LeftPanel({
         >
           Files <span className="tab__count">{files.length}</span>
         </button>
+        <span className="lp__tabbar-spacer" />
+        <label className="lp__batch" title="Apply action to all findings">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 6h13" />
+            <path d="M8 12h13" />
+            <path d="M8 18h13" />
+            <path d="M3 6h.01" />
+            <path d="M3 12h.01" />
+            <path d="M3 18h.01" />
+          </svg>
+          <select
+            value=""
+            disabled={batchDisabled}
+            aria-label="Apply action to all findings"
+            onChange={e => {
+              const value = e.target.value;
+              if (value) onBatchAction(value as FindingAction | 'clear');
+            }}
+          >
+            <option value="">Batch</option>
+            <option value="clear">No action</option>
+            {ACTION_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="lp__search">

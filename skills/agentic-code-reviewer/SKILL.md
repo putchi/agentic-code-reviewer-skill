@@ -21,8 +21,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"
 
 `/pr-review <number-or-url>` runs the same launcher with `--pr "$ARGUMENTS"`.
 The launcher validates required tools, creates `.claude/review-runs/<run-id>/`,
-starts `scripts/orchestrator.py` with `nohup`, prints the run id, and returns
-control to Claude Code immediately.
+starts `scripts/orchestrator.py` with `nohup`, then prints a compact status
+line every 20 seconds until the review UI is ready. Set
+`ACR_STATUS_POLL=0` to return immediately without polling.
 
 Claude Code named subagents are not used as the review execution primitive. The
 five reviewers run as independent `claude --print --output-format json`

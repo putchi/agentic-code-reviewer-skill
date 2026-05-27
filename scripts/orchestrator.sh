@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO=""
 PR=""
+STATUS_INTERVAL="${ACR_STATUS_INTERVAL_SECONDS:-20}"
+STATUS_MAX_SECONDS="${ACR_STATUS_MAX_SECONDS:-1800}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,3 +66,106 @@ Status: .claude/review-runs/${RUN_ID}/run.json
 Resume after decisions: /review-resume ${RUN_ID}
 Background PID: ${PID}
 EOF
+
+if [ "${ACR_STATUS_POLL:-1}" = "0" ]; then
+  exit 0
+fi
+
+if ! [[ "$STATUS_INTERVAL" =~ ^[0-9]+$ ]] || [ "$STATUS_INTERVAL" -lt 5 ]; then
+  STATUS_INTERVAL=20
+fi
+if ! [[ "$STATUS_MAX_SECONDS" =~ ^[0-9]+$ ]] || [ "$STATUS_MAX_SECONDS" -lt "$STATUS_INTERVAL" ]; then
+  STATUS_MAX_SECONDS=1800
+fi
+
+echo "Polling review status every ${STATUS_INTERVAL}s until the UI is ready..."
+
+START_TIME="$(date +%s)"
+while true; do
+  python3 - "$RUN_DIR" <<'PY'
+import datetime as dt
+import json
+import sys
+from pathlib import Path
+
+AGENTS = {
+    "semantic-analyzer",
+    "security-scanner",
+    "architecture-reviewer",
+    "test-coverage-analyzer",
+    "senior-dev-reviewer",
+}
+LABELS = {
+    "started": "starting",
+    "snapshotting": "snapshotting diff",
+    "reviewers_running": "reviewers running",
+    "reviewers_complete": "reviewers complete",
+    "synthesizing": "synthesizing verdict",
+    "synthesis_complete": "synthesis complete",
+    "synthesis_failed": "synthesis failed",
+    "launching_ui": "opening UI",
+    "awaiting_decisions": "UI ready",
+    "no_changes": "no reviewable changes",
+}
+
+run_dir = Path(sys.argv[1])
+run = {}
+try:
+    run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+except Exception:
+    pass
+
+agent_done = 0
+agent_failed = 0
+finding_count = 0
+for path in (run_dir / "agents").glob("*.json"):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    if data.get("agent") not in AGENTS:
+        continue
+    if data.get("status") in {"complete", "failed"}:
+        agent_done += 1
+        if data.get("status") == "failed":
+            agent_failed += 1
+        findings = data.get("findings")
+        if isinstance(findings, list):
+            finding_count += len(findings)
+
+status = str(run.get("status") or "starting")
+label = LABELS.get(status, status.replace("_", " "))
+now = dt.datetime.now().strftime("%H:%M:%S")
+parts = [f"[agentic-review {now}] {label}"]
+if status not in {"starting", "started", "snapshotting", "no_changes"}:
+    parts.append(f"agents {agent_done}/5")
+    if agent_failed:
+        parts.append(f"{agent_failed} failed")
+    parts.append(f"{finding_count} raw findings")
+if run.get("resume_command"):
+    parts.append(str(run["resume_command"]))
+print("; ".join(parts))
+PY
+
+  STATUS="$(python3 - "$RUN_DIR" <<'PY' 2>/dev/null || true
+import json
+import sys
+from pathlib import Path
+try:
+    print(json.loads((Path(sys.argv[1]) / "run.json").read_text(encoding="utf-8")).get("status", ""))
+except Exception:
+    print("")
+PY
+)"
+  if [ -f "$RUN_DIR/READY" ] || [ "$STATUS" = "awaiting_decisions" ] || [ "$STATUS" = "synthesis_failed" ] || [ "$STATUS" = "no_changes" ]; then
+    break
+  fi
+
+  NOW="$(date +%s)"
+  if [ $((NOW - START_TIME)) -ge "$STATUS_MAX_SECONDS" ]; then
+    echo "Status polling timed out; review is still running in the background."
+    echo "Status: .claude/review-runs/${RUN_ID}/run.json"
+    break
+  fi
+  sleep "$STATUS_INTERVAL"
+done

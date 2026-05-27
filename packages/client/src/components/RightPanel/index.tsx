@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Finding, FindingAction } from '@acr/shared';
+import type { Finding, FindingAction, LineAnnotation } from '@acr/shared';
 import CommentsPanel from './CommentsPanel';
 import ChatPanel from './ChatPanel';
 
@@ -10,21 +10,28 @@ interface Props {
   model: string;
   currentFile?: string;
   chatPrefill?: { id: number; prompt: string } | null;
+  commentsFocusToken?: number;
+  annotations: Record<string, LineAnnotation>;
   onCommentChange: (id: string, text: string) => void;
+  onRemoveAnnotation: (key: string) => void;
   onClose: () => void;
 }
 
 export default function RightPanel({
   findings, findingActions, comments, model,
-  currentFile, chatPrefill,
-  onCommentChange, onClose,
+  currentFile, chatPrefill, commentsFocusToken, annotations,
+  onCommentChange, onRemoveAnnotation, onClose,
 }: Props) {
   const [activeTab, setActiveTab] = useState<'comments' | 'chat'>('chat');
   const decided = findings.filter(f => findingActions[f.id]);
+  const annotationCount = Object.keys(annotations).length;
 
   useEffect(() => {
     if (chatPrefill) setActiveTab('chat');
   }, [chatPrefill?.id]);
+  useEffect(() => {
+    if (commentsFocusToken) setActiveTab('comments');
+  }, [commentsFocusToken]);
 
   return (
     <div className="panel rp">
@@ -39,7 +46,7 @@ export default function RightPanel({
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
           Comments
-          <span className="tab__count">{decided.length}</span>
+          <span className="tab__count">{decided.length + annotationCount}</span>
         </button>
         <button
           className="tab"
@@ -69,7 +76,9 @@ export default function RightPanel({
           findings={findings}
           findingActions={findingActions}
           comments={comments}
+          annotations={annotations}
           onCommentChange={onCommentChange}
+          onRemoveAnnotation={onRemoveAnnotation}
         />
       )}
       {activeTab === 'chat' && (

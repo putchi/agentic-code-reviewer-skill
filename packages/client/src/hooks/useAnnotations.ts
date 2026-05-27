@@ -1,4 +1,5 @@
 import { useLocalStorage } from './useLocalStorage';
+import { useCallback } from 'react';
 import type { LineAnnotation } from '@acr/shared';
 import { annotKey } from '../lib/annotKey';
 
@@ -17,17 +18,19 @@ export function useAnnotations() {
     'acr-line-annotations', {}
   );
 
-  function addAnnotation(sel: Selection, type: LineAnnotation['type'], text: string) {
+  const addAnnotation = useCallback((sel: Selection, type: LineAnnotation['type'], text: string) => {
     const key = annotKey(sel.file, sel.lineStart, sel.lineEnd, sel.side);
     setAnnotations(prev => ({
       ...prev,
       [key]: { file: sel.file, lineStart: sel.lineStart, lineEnd: sel.lineEnd, side: sel.side, type, text, linesText: sel.linesText },
     }));
-  }
+  }, [setAnnotations]);
 
-  function removeAnnotation(key: string) {
+  const removeAnnotation = useCallback((key: string) => {
     setAnnotations(prev => { const n = { ...prev }; delete n[key]; return n; });
-  }
+  }, [setAnnotations]);
 
-  return { annotations, addAnnotation, removeAnnotation };
+  const clearAnnotations = useCallback(() => setAnnotations({}), [setAnnotations]);
+
+  return { annotations, addAnnotation, removeAnnotation, clearAnnotations };
 }
