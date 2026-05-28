@@ -121,6 +121,7 @@ export default function CenterPanel({
             findingActions={findingActions}
             onSelectFinding={onSelectFinding}
             onFindingAction={onFindingAction}
+            onAskAI={onAskAI}
           />
         ) : (
           <DiffViewer

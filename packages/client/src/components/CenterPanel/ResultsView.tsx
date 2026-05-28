@@ -9,6 +9,7 @@ interface Props {
   findingActions: Record<string, FindingAction | ''>;
   onSelectFinding: (finding: Finding) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
+  onAskAI: (prompt: string) => void;
 }
 
 const DIMENSIONS: Record<string, { id: string; name: string; desc: string; icon: string }> = {
@@ -81,15 +82,51 @@ function getSevDot(severity: string) {
   return <span key={s} className={`sev-dot sev-dot--${s}`} />;
 }
 
+function formatOptional(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return 'Unknown';
+  const text = String(value).trim();
+  return text || 'Unknown';
+}
+
+function buildFindingAskPrompt(f: Finding) {
+  const lines = [
+    'Please explain this code review finding.',
+    '',
+    `Severity: ${f.severity}`,
+    `Finding: ${formatOptional(f.finding)}`,
+    `File: ${formatOptional(f.file)}`,
+    `Location: ${formatOptional(f.location)}`,
+    `Line: ${formatOptional(f.line)}`,
+  ];
+
+  if (f.reasoning?.trim()) {
+    lines.push('', 'Reasoning:', f.reasoning.trim());
+  }
+
+  if (f.evidence?.trim()) {
+    const evidence = f.evidence.trim();
+    const fence = evidence.includes('```') ? '````' : '```';
+    lines.push('', 'Evidence:', fence, evidence, fence);
+  }
+
+  lines.push(
+    '',
+    'Please explain why it matters, whether it is likely valid, and what fix approach I should use.'
+  );
+
+  return lines.join('\n');
+}
+
 interface FindingCardProps {
   f: Finding;
   selected: boolean;
   action: FindingAction | '';
   onSelect: (finding: Finding) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
+  onAskAI: (prompt: string) => void;
 }
 
-function FindingCard({ f, selected, action, onSelect, onFindingAction }: FindingCardProps) {
+function FindingCard({ f, selected, action, onSelect, onFindingAction, onAskAI }: FindingCardProps) {
   // Parse location into dir/filename + line
   const loc = f.location ?? '';
   const lineParts = loc.split(':');
@@ -139,7 +176,11 @@ function FindingCard({ f, selected, action, onSelect, onFindingAction }: Finding
           </svg>
           Open diff
         </button>
-        <button className="btn btn--sm btn--ghost" title="Ask AI about this finding">
+        <button
+          className="btn btn--sm btn--ghost"
+          title="Ask AI about this finding"
+          onClick={() => onAskAI(buildFindingAskPrompt(f))}
+        >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 3c-4.97 0-9 3.185-9 7.115 0 2.557 1.522 4.82 3.889 6.115L6 20l3.949-2.104A10.2 10.2 0 0 0 12 18.23c4.97 0 9-3.185 9-7.115S16.97 3 12 3z" />
           </svg>
@@ -157,9 +198,10 @@ interface DimensionGroupProps {
   findingActions: Record<string, FindingAction | ''>;
   onSelectFinding: (finding: Finding) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
+  onAskAI: (prompt: string) => void;
 }
 
-function DimensionGroup({ dim, items, selectedFindingId, findingActions, onSelectFinding, onFindingAction }: DimensionGroupProps) {
+function DimensionGroup({ dim, items, selectedFindingId, findingActions, onSelectFinding, onFindingAction, onAskAI }: DimensionGroupProps) {
   const hasCritical = items.some(i => i.severity === 'CRITICAL');
   const [open, setOpen] = useState(hasCritical);
 
@@ -204,6 +246,7 @@ function DimensionGroup({ dim, items, selectedFindingId, findingActions, onSelec
               action={findingActions[f.id] || ''}
               onSelect={onSelectFinding}
               onFindingAction={onFindingAction}
+              onAskAI={onAskAI}
             />
           ))}
         </div>
@@ -287,7 +330,7 @@ function ReviewerGroup({ result, onSelectFinding }: ReviewerGroupProps) {
   );
 }
 
-export default function ResultsView({ data, selectedFindingId, findingActions, onSelectFinding, onFindingAction }: Props) {
+export default function ResultsView({ data, selectedFindingId, findingActions, onSelectFinding, onFindingAction, onAskAI }: Props) {
   if (!data) {
     return (
       <div style={{ padding: '24px', color: 'var(--fg-faint)', fontSize: 13 }}>
@@ -379,6 +422,7 @@ export default function ResultsView({ data, selectedFindingId, findingActions, o
               findingActions={findingActions}
               onSelectFinding={onSelectFinding}
               onFindingAction={onFindingAction}
+              onAskAI={onAskAI}
             />
           ))}
         </>
