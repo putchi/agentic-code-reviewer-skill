@@ -40,10 +40,10 @@ function persistDecision(payload: DecisionPayload, action: 'implement' | 'save' 
   const decision = normalizeDecision(payload, action);
   if (decisionsJsonFile) {
     writeFileSync(decisionsJsonFile, JSON.stringify(decision, null, 2), 'utf8');
-    updateRunStatus('decisions_ready');
+    updateRunStatus(action === 'save' ? 'decisions_saved' : 'decisions_ready');
   }
   writeFileSync(decisionFile, JSON.stringify({ action, ...payload, decisions: decision }), 'utf8');
-  writeFileSync(doneFile, '', 'utf8');
+  if (action !== 'save') writeFileSync(doneFile, '', 'utf8');
   return decision;
 }
 

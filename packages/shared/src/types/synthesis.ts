@@ -54,6 +54,7 @@ export interface RunContext {
   repo: string;
   branch?: string;
   timestamp: string;
+  diff_sha256?: string;
   pr?: Record<string, unknown> | null;
   files?: FileEntry[];
 }

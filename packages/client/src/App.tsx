@@ -136,7 +136,6 @@ export default function App() {
   async function handleCloseGuardSave() {
     setShowCloseGuard(false);
     await postDecision('save', buildBasePayload());
-    window.close();
   }
 
   async function handleCloseGuardAnyway() {

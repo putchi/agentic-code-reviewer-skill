@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import subprocess
@@ -65,6 +66,10 @@ def split_diff_files(diff: str) -> list[dict]:
         delete = sum(1 for line in chunk_lines if line.startswith("-") and not line.startswith("---"))
         files.append({"path": path, "diff": "\n".join(chunk_lines), "add": add, "del": delete})
     return files
+
+
+def diff_sha256(diff: str) -> str:
+    return hashlib.sha256(diff.encode("utf-8")).hexdigest()
 
 
 class Orchestrator:
@@ -229,6 +234,8 @@ class Orchestrator:
         (self.run_dir / "prompts").mkdir(exist_ok=True)
         self.update_run("started", started_at=utc_now())
         diff, pr_meta, branch = self.snapshot()
+        diff_hash = diff_sha256(diff)
+        self.update_run("snapshotting", diff_sha256=diff_hash)
         files = split_diff_files(diff)
         (self.run_dir / "diff.txt").write_text(diff, encoding="utf-8")
         write_json(self.run_dir / "context.json", {
@@ -236,6 +243,7 @@ class Orchestrator:
             "repo": str(self.repo),
             "branch": branch,
             "timestamp": utc_now(),
+            "diff_sha256": diff_hash,
             "pr": pr_meta,
             "files": files,
         })

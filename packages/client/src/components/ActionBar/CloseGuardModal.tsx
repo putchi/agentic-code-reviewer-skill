@@ -19,7 +19,7 @@ export default function CloseGuardModal({ criticalFindings, onSaveAndClose, onCl
           <div className="modal__main">
           <p>
             You have {criticalFindings.length} unaddressed critical finding{criticalFindings.length !== 1 ? 's' : ''}.
-            Choose an action for each critical finding before closing, or save and resume later.
+            Choose an action for each critical finding before closing, or save your current decisions first.
           </p>
           <ul style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
             {criticalFindings.map(f => (
@@ -33,7 +33,7 @@ export default function CloseGuardModal({ criticalFindings, onSaveAndClose, onCl
         </div>
         <div className="modal__foot">
           <span className="modal__foot-meta" />
-          <button className="btn" onClick={onSaveAndClose}>Save for later</button>
+          <button className="btn" onClick={onSaveAndClose}>Save decisions</button>
           <button className="btn btn--ghost" onClick={onCloseAnyway}>Close anyway</button>
         </div>
       </div>

@@ -77,10 +77,10 @@ The server binary is compiled with `bun build --compile`. The built client HTML 
 | POST | `/api/chat/query` | Send a message to an active chat session |
 | POST | `/api/chat/abort` | Abort an in-flight chat stream |
 | POST | `/api/implement` | Write implementation decisions, save markdown, touch `.done`, and try auto-resume |
-| POST | `/api/save` | Write `decisions.json`, compatibility `/tmp/*.decision`, and markdown review |
+| POST | `/api/save` | Write non-final `decisions.json`, compatibility `/tmp/*.decision`, and markdown review |
 | POST | `/api/done` | Write final decisions, touch `.done`, and try auto-resume |
 
-`config.ts` reads CLI args (`--session`, `--run-dir`, `--findings-file`, `--save-dir`, `--port`, `--platform`) and derives all file paths. Current runs prefer `.claude/review-runs/<run-id>/{synthesis.json,context.json,diff.txt,run.json,decisions.json}`. The session-scoped `/tmp/claude-code-review-${sessionId}.{json,decision,done,blocked}` files remain for legacy compatibility and the Stop hook.
+`config.ts` reads CLI args (`--session`, `--run-dir`, `--findings-file`, `--save-dir`, `--port`, `--platform`) and derives all file paths. Current runs prefer `.claude/review-runs/<run-id>/{synthesis.json,context.json,diff.txt,run.json,decisions.json}`. The session-scoped `/tmp/claude-code-review-${sessionId}.{json,decision,done,blocked}` files remain for legacy compatibility and the Stop hook. `/api/save` is intentionally non-final; only `/api/implement` and `/api/done` touch `.done`.
 
 `settings.ts` persists user preferences (`autoCloseMs`, `chatModel`, `firstRunDone`) to `~/.claude/agentic-code-reviewer/settings.json` by default. `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location; legacy plugin-root `settings.json` is migrated on read.
 
@@ -101,11 +101,13 @@ Types consumed by both server and client: `Finding`, `FileEntry`, `ReviewData`, 
 
 ### Skill / plugin layer
 
-The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts and the synthesizer prompt (`synthesizer.md`) are in `agents/`. The slash commands are in `commands/` (`agentic-code-reviewer.md`, `pr-review.md`, `review-resume.md`). The Stop-hook gate (`hooks/code-review-gate.sh`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
+The actual Claude Code skill lives in `skills/agentic-code-reviewer/SKILL.md`. The five reviewer agent prompts and the synthesizer prompt (`synthesizer.md`) are in `agents/`. The slash commands are in `commands/` (`agentic-code-reviewer.md`, `pr-review.md`, `review-resume.md`). The Stop-hook gate (`hooks/code-review-gate.sh` -> `scripts/review-gate.py`) and update-check hook (`hooks/check-update.sh`) are registered in `hooks/hooks.json`.
 
 The slash commands are lightweight launchers. `/agentic-code-reviewer` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, starts `scripts/orchestrator.py` with `nohup`, and returns immediately. The five reviewers run as separate non-interactive `claude --print --output-format json` processes through `scripts/run-reviewer.sh`; `scripts/run-synthesizer.sh` runs only after all reviewer result files exist and validate. The Bun server is launched with `--run-dir <path>` and reads `synthesis.json`; decisions are written to `decisions.json`. The `/tmp/claude-code-review-*` files remain only for compatibility.
 
-After UI decisions are saved, `packages/server/src/auto-resume.ts` tries to resume the active host session: Claude Code via `CLAUDE_SESSION_ID` and `claude --resume`, Codex via `CODEX_THREAD_ID` and `codex exec resume`. Manual fallback is `/review-resume <run-id>`. That command reads `synthesis.json` and `decisions.json`, then implements only findings marked `ask_claude_to_implement` or `accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and reports `create_follow_up_task` items.
+Claude Code Stop-hook flow: when changed code exists and the session has not been marked reviewed, `scripts/review-gate.py` computes the reviewable diff hash using the same exclusions as the orchestrator. It reuses the newest matching `.claude/review-runs/<run-id>` when `diff_sha256` matches, otherwise launches `scripts/orchestrator.sh` with `ACR_STATUS_POLL=0` and `ACR_DISABLE_AUTO_RESUME=1`. The hook waits for the UI to reach a decision. If the final decisions include `ask_claude_to_implement`, `accept_fix`, `ask_claude_to_explain`, or `create_follow_up_task`, it returns a Stop-hook block with instructions to run `scripts/review-resume.sh --repo <repo> --run-id <run-id>` and follow the output. If all findings are ignored/dismissed or there is no work, it touches the session `.done` sentinel and allows Stop.
+
+For non-hook launches, after UI decisions are saved, `packages/server/src/auto-resume.ts` still tries to resume the active host session: Claude Code via `CLAUDE_SESSION_ID` and `claude --resume`, Codex via `CODEX_THREAD_ID` and `codex exec resume`. Manual fallback is `/review-resume <run-id>`. That command reads `synthesis.json` and `decisions.json`, then implements only findings marked `ask_claude_to_implement` or `accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and reports `create_follow_up_task` items.
 
 **Run ID / session ID:** `scripts/orchestrator.sh` creates a UTC timestamp + random hex run id and passes it as `--session` to the UI server. Direct legacy server invocations without `--session` still default to `unknown`, so new launch paths should always pass the run id explicitly.
 
@@ -163,7 +165,7 @@ gh release view vX.Y.Z   # confirm all 3 binaries attached
 After every `git push`, delete any `.bun-build` cache files left in the repo root:
 
 ```bash
-rm -f *.bun-build .*.bun-build
+find . -maxdepth 1 -type f -name '*.bun-build' -exec rm -f {} +
 ```
 
 These are content-addressed Bun compile artifacts that accumulate locally and are not useful after the push is done. They are gitignored but clutter the working directory.

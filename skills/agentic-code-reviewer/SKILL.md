@@ -34,6 +34,12 @@ starts `scripts/orchestrator.py` with `nohup`, then prints a compact status
 line every 20 seconds until the review UI is ready. Set
 `ACR_STATUS_POLL=0` to return immediately without polling.
 
+In Claude Code, the Stop hook can also launch this same background review
+automatically. `hooks/code-review-gate.sh` delegates to
+`scripts/review-gate.py`, which hashes the current reviewable diff, reuses the
+newest matching run when possible, otherwise launches the orchestrator, then
+waits for the Web UI final action.
+
 Claude Code named subagents are not used as the review execution primitive. The
 five reviewers run as independent `claude --print --output-format json`
 processes through `scripts/run-reviewer.sh`, one output file per reviewer:
@@ -58,6 +64,7 @@ Each run writes:
   context.json
   diff.txt
   orchestrator.log
+  review-gate.json
   READY
   ui.pid
   prompts/*.prompt.md
@@ -72,7 +79,14 @@ partial evidence.
 
 ## Continuation
 
-After the user saves decisions in the UI, run:
+When the Stop hook launched or is watching the run, the UI action is handled
+automatically. Implement / Done / confirmed Dismiss write final decisions; Save
+decisions is non-final and keeps the hook waiting. If any decision is
+actionable, the hook wakes Claude with instructions to run the resume reader and
+act on the result. If all findings are ignored or there is no work, the hook
+allows the session to finish.
+
+Manual fallback:
 
 ```text
 /review-resume <run-id>
