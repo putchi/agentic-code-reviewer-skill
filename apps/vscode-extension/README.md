@@ -1,18 +1,26 @@
 # Agentic Code Reviewer for VS Code
 
 <p align="center">
-  <img src="images/icon.png" alt="Agentic Code Reviewer brand image showing a robot inspecting code with a magnifying glass, a checklist, and an idea light bulb" width="128" />
+  <img src="https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/docs/assets/agentic-code-reviewer.png" alt="Agentic Code Reviewer brand image showing a robot inspecting code with a magnifying glass, a checklist, and an idea light bulb" width="180" />
 </p>
 
-Opens Agentic Code Reviewer sessions inside VS Code tabs instead of an external browser. It is intended for Claude Code, Codex, and other agents launched from the VS Code integrated terminal.
+Open Agentic Code Reviewer sessions inside VS Code editor tabs instead of sending them to an external browser. The extension is intended for Claude Code, Codex, and compatible agent launchers running in the VS Code integrated terminal.
+
+## Details
+
+Agentic Code Reviewer launches a local review UI. This extension registers a workspace-local IPC bridge and injects `ACR_BROWSER` and `ACR_VSCODE_PORT` into new integrated terminals so local review URLs open as VS Code webview tabs.
+
+Each review tab proxies the localhost ACR server through a per-panel `127.0.0.1` proxy. The proxy preserves ACR cookies, forwards close signals back to VS Code, and keeps the review UI aligned with the active VS Code theme. From an active review, selected editor text can be attached as an ACR annotation and sent to the review server.
+
+Use **Agentic Code Reviewer: Reset Settings to Defaults** to clear extension-local cookies, IPC state, active panels, and editor annotation state.
 
 ## Features
 
-- Opens ACR review sessions in a VS Code webview tab.
+- Opens local ACR review sessions in VS Code webview tabs.
 - Injects `ACR_BROWSER` and `ACR_VSCODE_PORT` into new integrated terminals.
-- Proxies localhost review sessions so cookies, close signals, and theme sync work inside the iframe.
-- Lets you select code in the editor and add review annotations with `Cmd+Shift+.` or `Ctrl+Shift+.`.
-- Provides a reset command for extension-local cookies, IPC state, panels, and editor annotations.
+- Proxies localhost review sessions so cookies, close signals, and VS Code theme sync work inside the webview.
+- Adds editor-selection annotations to the active ACR session with `Cmd+Shift+.` or `Ctrl+Shift+.`.
+- Resets extension-local cookies, IPC state, active panels, and editor annotations from the command palette.
 
 ## Setup
 
