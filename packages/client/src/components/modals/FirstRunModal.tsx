@@ -6,14 +6,16 @@ import { ToggleSwitch } from '../atoms';
 interface Props {
   settings: Settings;
   onSave: (patch: Partial<Settings>) => Promise<Settings> | Settings | void;
+  onReset: () => Promise<Settings> | Settings | void;
 }
 
-export default function FirstRunModal({ settings, onSave }: Props) {
+export default function FirstRunModal({ settings, onSave, onReset }: Props) {
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(settings.autoCloseMs > 0);
   const [autoCloseSec, setAutoCloseSec] = useState(
     Math.max(Math.round(settings.autoCloseMs / 1000) || 3, 1)
   );
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
 
   async function persist(patch: Partial<Settings>) {
@@ -36,6 +38,20 @@ export default function FirstRunModal({ settings, onSave }: Props) {
 
   function handleSkip() {
     void persist({ firstRunDone: true });
+  }
+
+  async function handleReset() {
+    if (resetting || saving) return;
+    setAutoCloseEnabled(false);
+    setAutoCloseSec(3);
+    setResetting(true);
+    try {
+      await onReset();
+    } catch {
+      // The user can still save the visible defaults if the reset request fails.
+    } finally {
+      setResetting(false);
+    }
   }
 
   function clampSec(val: number) {
@@ -114,6 +130,9 @@ export default function FirstRunModal({ settings, onSave }: Props) {
           <div className="modal__foot">
             <div className="modal__foot-meta">You can change these anytime via the ≡ menu.</div>
             <button className="btn btn--ghost" onClick={handleSkip} disabled={saving}>Skip</button>
+            <button className="btn btn--ghost" onClick={() => void handleReset()} disabled={saving || resetting}>
+              Reset to defaults
+            </button>
             <button className="btn btn--cta" onClick={handleSave} disabled={saving}>
               Save &amp; continue
             </button>

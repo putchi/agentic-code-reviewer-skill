@@ -1,0 +1,12 @@
+.vscode/**
+mocks/**
+scripts/**
+src/**
+node_modules/**
+*.ts
+!*.d.ts
+.gitignore
+tsconfig.json
+bun.lock
+../../**
+../**

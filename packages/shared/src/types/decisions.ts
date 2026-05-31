@@ -3,6 +3,15 @@ export interface LineAnnotation {
   side: 'new' | 'old'; text: string; linesText: string;
   type: 'COMMENT' | 'REDLINE' | 'LABEL';
 }
+export interface EditorAnnotation {
+  id: string;
+  filePath: string;
+  selectedText: string;
+  lineStart: number;
+  lineEnd: number;
+  comment?: string;
+  createdAt: number;
+}
 export const FINDING_ACTIONS = [
   'accept_fix',
   'ignore',

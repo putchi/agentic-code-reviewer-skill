@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Finding, FindingAction } from '@acr/shared';
 import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations, type Selection } from './hooks/useAnnotations';
+import { useEditorAnnotations } from './hooks/useEditorAnnotations';
 import { useSettings } from './hooks/useSettings';
 import { postDecision } from './lib/api';
 import { buildDecisionPayload } from '@acr/shared';
@@ -23,8 +24,9 @@ import { isImplementAction } from './lib/findingActions';
 
 export default function App() {
   const { data, isLoading: reviewLoading, error } = useReviewData();
-  const { settings, updateSettings, isLoading: settingsLoading } = useSettings();
+  const { settings, updateSettings, resetSettings, isLoading: settingsLoading } = useSettings();
   const { annotations, addAnnotation, removeAnnotation, clearAnnotations } = useAnnotations();
+  const { editorAnnotations, deleteEditorAnnotation } = useEditorAnnotations();
   const isLoading = reviewLoading || settingsLoading;
   const [activeFilter, setActiveFilter] = useState<'ALL'|'CRITICAL'|'HIGH'|'NOTE'>('ALL');
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
@@ -44,6 +46,28 @@ export default function App() {
 
   const findings = data?.findings ?? [];
   const files = data?.files ?? [];
+  const editorAnnotationMap = useMemo(() => {
+    const entries: Record<string, LineAnnotation> = {};
+    const idsByKey: Record<string, string> = {};
+    for (const annotation of editorAnnotations) {
+      const key = `${annotation.filePath}|${annotation.lineStart}|${annotation.lineEnd}|new`;
+      entries[key] = {
+        file: annotation.filePath,
+        lineStart: annotation.lineStart,
+        lineEnd: annotation.lineEnd,
+        side: 'new',
+        type: 'COMMENT',
+        text: annotation.comment || '(no comment)',
+        linesText: annotation.selectedText,
+      };
+      idsByKey[key] = annotation.id;
+    }
+    return { entries, idsByKey };
+  }, [editorAnnotations]);
+  const allAnnotations = useMemo(
+    () => ({ ...annotations, ...editorAnnotationMap.entries }),
+    [annotations, editorAnnotationMap],
+  );
 
   useEffect(() => {
     if (!data?.runId) return;
@@ -120,7 +144,7 @@ export default function App() {
       runId: data?.runId,
       findingActions,
       comments,
-      lineAnnotations: annotations,
+      lineAnnotations: allAnnotations,
     });
   }
 
@@ -214,7 +238,7 @@ export default function App() {
         runId: data?.runId,
         findingActions: nextActions,
         comments: nextComments,
-        lineAnnotations: annotations,
+        lineAnnotations: allAnnotations,
       }));
       window.close();
     } finally {
@@ -232,6 +256,14 @@ export default function App() {
     addAnnotation(sel, type, text);
     setRightPanelOpen(true);
     setCommentsFocusToken(Date.now());
+  }
+  function handleRemoveAnnotation(key: string) {
+    const editorAnnotationId = editorAnnotationMap.idsByKey[key];
+    if (editorAnnotationId) {
+      void deleteEditorAnnotation(editorAnnotationId);
+      return;
+    }
+    removeAnnotation(key);
   }
 
   const diffText = (data?.files ?? []).find(f => f.path === selectedFile)?.diff ?? '';
@@ -281,7 +313,7 @@ export default function App() {
           onShowRightPanel={() => setRightPanelOpen(true)}
           onHelpModal={() => setShowHelp(true)}
           onAskAI={prompt => { setChatPrefill({ id: Date.now(), prompt }); setRightPanelOpen(true); }}
-          annotations={annotations}
+          annotations={allAnnotations}
           onAddAnnotation={handleAddAnnotation}
           onFileDeselect={() => setSelectedFile(null)} />
         {rightPanelOpen && (
@@ -293,9 +325,9 @@ export default function App() {
             currentFile={selectedFile ?? undefined}
             chatPrefill={chatPrefill}
             commentsFocusToken={commentsFocusToken}
-            annotations={annotations}
+            annotations={allAnnotations}
             onCommentChange={handleCommentChange}
-            onRemoveAnnotation={removeAnnotation}
+            onRemoveAnnotation={handleRemoveAnnotation}
             onClose={() => setRightPanelOpen(false)} />
         )}
         {!rightPanelOpen && (
@@ -316,7 +348,7 @@ export default function App() {
         totalFindings={findings.length}
         findingActions={findingActions}
         comments={comments}
-        lineAnnotations={annotations}
+        lineAnnotations={allAnnotations}
         resumeCommand={data?.resumeCommand}
         onCloseRequest={handleCloseRequest}
         onSelectAll={handleSelectAllForImplementation}
@@ -333,7 +365,11 @@ export default function App() {
         />
       )}
       {!isLoading && !settings.firstRunDone && (
-        <FirstRunModal settings={settings} onSave={patch => updateSettings(patch)} />
+        <FirstRunModal
+          settings={settings}
+          onSave={patch => updateSettings(patch)}
+          onReset={resetSettings}
+        />
       )}
       {showCloseGuard && (
         <CloseGuardModal
@@ -347,6 +383,7 @@ export default function App() {
         open={showMenu}
         settings={settings}
         onUpdate={patch => updateSettings(patch)}
+        onReset={resetSettings}
         onClose={() => setShowMenu(false)}
         onHelp={() => setShowHelp(true)} />
       <UpdateToast />

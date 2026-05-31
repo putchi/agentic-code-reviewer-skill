@@ -7,12 +7,14 @@ interface Props {
   open: boolean;
   settings: Settings;
   onUpdate: (patch: Partial<Settings>) => void;
+  onReset: () => Promise<Settings> | Settings | void;
   onClose: () => void;
   onHelp: () => void;
 }
 
-export default function SettingsPane({ open, settings, onUpdate, onClose, onHelp }: Props) {
+export default function SettingsPane({ open, settings, onUpdate, onReset, onClose, onHelp }: Props) {
   const [version, setVersion] = useState('');
+  const [resetting, setResetting] = useState(false);
   const autoCloseSec = settings.autoCloseMs > 0 ? Math.round(settings.autoCloseMs / 1000) : 3;
 
   useEffect(() => {
@@ -32,6 +34,18 @@ export default function SettingsPane({ open, settings, onUpdate, onClose, onHelp
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  async function handleReset() {
+    if (resetting) return;
+    setResetting(true);
+    try {
+      await onReset();
+    } catch {
+      // Keep the drawer usable if the local server rejects the reset.
+    } finally {
+      setResetting(false);
+    }
+  }
 
   if (!open) return null;
 
@@ -96,6 +110,19 @@ export default function SettingsPane({ open, settings, onUpdate, onClose, onHelp
                 </div>
               </div>
             )}
+          </section>
+
+          <div className="settings-drawer__divider" />
+
+          <section className="settings-drawer__section">
+            <button
+              className="btn btn--ghost"
+              style={{ alignSelf: 'flex-start' }}
+              onClick={handleReset}
+              disabled={resetting}
+            >
+              Reset to default settings
+            </button>
           </section>
 
           <div className="settings-drawer__divider" />

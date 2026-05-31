@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchSettings, patchSettings, type Settings } from '../lib/api';
+import { fetchSettings, patchSettings, resetSettings as resetSettingsRequest, type Settings } from '../lib/api';
 
 const DEFAULTS: Settings = {
   autoCloseMs: 0,
@@ -45,5 +45,11 @@ export function useSettings() {
     }
   }, []);
 
-  return { settings, updateSettings, isLoading };
+  const resetSettings = useCallback(async () => {
+    const updated = await resetSettingsRequest();
+    setSettings(updated);
+    return updated;
+  }, []);
+
+  return { settings, updateSettings, resetSettings, isLoading };
 }

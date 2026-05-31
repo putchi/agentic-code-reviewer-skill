@@ -14,6 +14,9 @@ export async function fetchSettings(): Promise<Settings> { return (await fetch('
 export async function patchSettings(patch: Partial<Settings>): Promise<Settings> {
   return (await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })).json();
 }
+export async function resetSettings(): Promise<Settings> {
+  return (await fetch('/api/settings/reset', { method: 'POST' })).json();
+}
 export async function fetchReview(): Promise<ReviewData> { return (await fetch('/api/review')).json(); }
 export async function fetchVersionCheck() { return (await fetch('/api/version-check')).json(); }
 export async function postDecision(action: 'implement'|'save'|'done', payload: Omit<DecisionPayload,'action'>) {

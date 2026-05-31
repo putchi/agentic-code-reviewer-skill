@@ -24,21 +24,21 @@ export function splitUnifiedDiff(diffText: string): FileEntry[] {
   }
   if (current.length) chunks.push(current.join('\n'));
 
-  return chunks
-    .map(chunk => {
-      const header = chunk.split('\n')[0] || '';
-      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(header);
-      if (!match) return null;
-      const path = match[2];
-      let add = 0, del = 0;
-      for (const line of chunk.split('\n')) {
-        if (line.startsWith('+++') || line.startsWith('---')) continue;
-        if (line.startsWith('+')) add++;
-        if (line.startsWith('-')) del++;
-      }
-      return { path, diff: chunk, add, del };
-    })
-    .filter((f): f is FileEntry => !!f);
+  const files: FileEntry[] = [];
+  for (const chunk of chunks) {
+    const header = chunk.split('\n')[0] || '';
+    const match = /^diff --git a\/(.+) b\/(.+)$/.exec(header);
+    if (!match) continue;
+    const path = match[2];
+    let add = 0, del = 0;
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('+++') || line.startsWith('---')) continue;
+      if (line.startsWith('+')) add++;
+      if (line.startsWith('-')) del++;
+    }
+    files.push({ path, diff: chunk, add, del });
+  }
+  return files;
 }
 
 function readRunFiles(contextPath: string | null, diffPath: string | null): FileEntry[] {

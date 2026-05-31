@@ -103,3 +103,17 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   }
   return hydrateSettings(updated);
 }
+
+export function resetSettings(): Settings {
+  const current = loadSettings();
+  const updated: PersistedSettings = {
+    ...DEFAULTS,
+    firstRunDone: current.firstRunDone,
+  };
+  try {
+    writeSettingsFile(resolveSettingsFile(), updated);
+  } catch (e: any) {
+    throw new Error(`Failed to reset settings at ${resolveSettingsFile()}: ${e.message}`);
+  }
+  return hydrateSettings(updated);
+}

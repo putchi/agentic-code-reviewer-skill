@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { writeFileSync, copyFileSync, mkdtempSync, rmSync, mkdirSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { loadSettings, resolveSettingsFile, saveSettings } from '../../packages/server/src/settings';
+import { loadSettings, resetSettings, resolveSettingsFile, saveSettings } from '../../packages/server/src/settings';
 
 const DEFAULT_FX = '/tmp/claude-code-review-unknown.json';
 let settingsDir = '';
@@ -81,6 +81,16 @@ describe('saveSettings', () => {
 
   test('firstRunDone persists across load/save cycle', () => {
     saveSettings({ firstRunDone: true });
+    expect(loadSettings().firstRunDone).toBe(true);
+  });
+
+  test('resetSettings resets user preferences while preserving onboarding state', () => {
+    saveSettings({ autoCloseMs: 5000, firstRunDone: true });
+    const result = resetSettings();
+    expect(result.autoCloseMs).toBe(0);
+    expect(result.firstRunDone).toBe(true);
+    expect(result.provider).toBe('claude');
+    expect(loadSettings().autoCloseMs).toBe(0);
     expect(loadSettings().firstRunDone).toBe(true);
   });
 });

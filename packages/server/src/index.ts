@@ -8,7 +8,8 @@ import { handleChatSession, handleChatQuery, handleChatAbort } from './routes/ch
 import { handleImplement, handleSave, handleDone } from './routes/decisions';
 import { resetIdle } from './timeout';
 import { openBrowser } from './browser';
-import { loadSettings, saveSettings } from './settings';
+import { loadSettings, resetSettings, saveSettings } from './settings';
+import { createEditorAnnotationHandler } from './editor-annotations';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLUGIN_ROOT } from './config';
@@ -28,6 +29,7 @@ async function pickPort(): Promise<number> {
 }
 
 const selectedPort = await pickPort();
+const editorAnnotationHandler = createEditorAnnotationHandler();
 
 const onIdle = () => { console.log('Idle timeout — closing server.'); server.stop(); process.exit(0); };
 
@@ -38,8 +40,10 @@ const server = Bun.serve({
   async fetch(req) {
     resetIdle(onIdle);
     const url = new URL(req.url);
+    const editorAnnotationResponse = await editorAnnotationHandler.handle(req, url);
+    if (editorAnnotationResponse) return editorAnnotationResponse;
     if (req.method === 'GET') {
-      if (url.pathname === '/')                   return serveClient(clientHtml as string);
+      if (url.pathname === '/')                   return serveClient(clientHtml as unknown as string);
       if (url.pathname === '/api/review')         return handleReview();
       if (url.pathname === '/api/version-check')  return await handleVersionCheck();
       if (url.pathname === '/api/settings')        return Response.json(loadSettings());
@@ -57,6 +61,7 @@ const server = Bun.serve({
     }
     if (req.method === 'POST') {
       const payload = await req.json().catch(() => ({}));
+      if (url.pathname === '/api/settings/reset') return Response.json(resetSettings());
       if (url.pathname === '/api/settings')       return Response.json(saveSettings(payload));
       if (url.pathname === '/api/chat/session') return handleChatSession(payload);
       if (url.pathname === '/api/chat/query')   return await handleChatQuery(payload);

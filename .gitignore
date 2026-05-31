@@ -22,6 +22,13 @@ docs/code-reviews/
 # Bun workspace
 node_modules/
 packages/*/node_modules/
+apps/*/node_modules/
+!apps/vscode-extension/.vscode/
+!apps/vscode-extension/.vscode/**
+!apps/vscode-extension/bin/
+!apps/vscode-extension/bin/**
+apps/vscode-extension/dist/
+apps/vscode-extension/*.vsix
 packages/client/dist/
 packages/client/.vite/
 bun.lockb

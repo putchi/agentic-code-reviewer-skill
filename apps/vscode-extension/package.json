@@ -1,0 +1,110 @@
+{
+  "name": "agentic-code-reviewer-webview",
+  "displayName": "Agentic Code Reviewer",
+  "description": "Opens Agentic Code Reviewer sessions inside VS Code tabs instead of an external browser",
+  "version": "0.1.0",
+  "publisher": "agentic-code-reviewer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/putchi/agentic-code-reviewer-skill.git",
+    "directory": "apps/vscode-extension"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["agentic-code-reviewer", "code review", "claude", "codex", "ai", "webview"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": ["workspace", "ui"],
+  "main": "./dist/extension.cjs",
+  "icon": "images/icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentic-code-reviewer-webview.openUrl",
+        "title": "Agentic Code Reviewer: Open URL in Editor"
+      },
+      {
+        "command": "agentic-code-reviewer-webview.addEditorAnnotation",
+        "title": "Agentic Code Reviewer: Add Annotation"
+      },
+      {
+        "command": "agentic-code-reviewer-webview.submitComment",
+        "title": "Submit Annotation",
+        "icon": "$(check)"
+      },
+      {
+        "command": "agentic-code-reviewer-webview.deleteEditorAnnotation",
+        "title": "Delete Annotation",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "agentic-code-reviewer-webview.resetSettings",
+        "title": "Agentic Code Reviewer: Reset Settings to Defaults"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "agentic-code-reviewer-webview.addEditorAnnotation",
+        "key": "ctrl+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "agentic-code-reviewer-webview.addEditorAnnotation",
+          "when": "editorHasSelection",
+          "group": "agenticCodeReviewer"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "agentic-code-reviewer-webview.deleteEditorAnnotation",
+          "group": "inline",
+          "when": "commentController == agentic-code-reviewer && commentThread == agentic-code-reviewer-thread"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "agentic-code-reviewer-webview.submitComment",
+          "group": "inline",
+          "when": "commentController == agentic-code-reviewer"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "agentic-code-reviewer-webview.resetSettings"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agentic Code Reviewer",
+      "properties": {
+        "agenticCodeReviewerWebview.injectBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Inject ACR_BROWSER into integrated terminals to redirect Agentic Code Reviewer sessions to VS Code."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun run ./scripts/build.ts",
+    "watch": "bun run ./scripts/watch.ts",
+    "test": "bun test",
+    "lint": "tsc --noEmit",
+    "vsce-package": "vsce package --no-dependencies",
+    "package": "bun run build && bun run vsce-package",
+    "clean": "rm -rf ./dist"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.0.0"
+  }
+}

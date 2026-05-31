@@ -1,5 +1,9 @@
 # Agentic Code Reviewer
 
+<p align="center">
+  <img src="docs/assets/agentic-code-reviewer.png" alt="Agentic Code Reviewer brand image showing a robot inspecting code with a magnifying glass, a checklist, and an idea light bulb" width="420" />
+</p>
+
 A portable skill that launches a background code-review run for your git diff. It starts 5 specialized reviewer processes in parallel, runs a Synthesizer pass after they finish, and opens a local web UI where you can triage findings, annotate code, save decisions, and resume the agent with deterministic follow-up instructions.
 
 ## What it does

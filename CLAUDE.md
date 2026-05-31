@@ -38,6 +38,12 @@ bun run build
 # Build the distributable self-contained binary
 bun run compile          # → dist/review-server
 
+# VS Code extension
+bun run build:vscode
+bun run dev:vscode
+bun run test:vscode
+bun run package:vscode
+
 # Start the server in dev mode (watch + hot reload)
 bun run dev              # server on :7788, client dev server on :5173
 ```
@@ -51,6 +57,7 @@ The `compile` script (`bun run build && bun build packages/server/src/index.ts -
 This is a **Bun workspace monorepo** with three packages and a top-level test suite:
 
 ```
+apps/vscode-extension — VS Code webview extension for opening ACR sessions in editor tabs
 packages/shared   — TypeScript types shared between server and client (@acr/shared)
 packages/server   — Bun HTTP server (@acr/server), compiled to a self-contained binary
 packages/client   — React 19 + Vite + Tailwind 4 SPA (@acr/client), built to a single HTML file
@@ -72,7 +79,11 @@ The server binary is compiled with `bun build --compile`. The built client HTML 
 | GET | `/api/version-check` | Compare installed vs. latest GitHub version |
 | GET | `/api/settings` | Read persisted UI settings |
 | GET | `/api/version` | Read version from `.claude-plugin/plugin.json` |
+| GET | `/api/editor-annotations` | Read ephemeral VS Code editor annotations |
 | POST | `/api/settings` | Persist settings patch |
+| POST | `/api/settings/reset` | Reset persisted user settings to defaults |
+| POST | `/api/editor-annotation` | Add an ephemeral VS Code editor annotation |
+| DELETE | `/api/editor-annotation?id=...` | Delete an ephemeral VS Code editor annotation |
 | POST | `/api/chat/session` | Create a new provider-backed Ask AI streaming session |
 | POST | `/api/chat/query` | Send a message to an active chat session |
 | POST | `/api/chat/abort` | Abort an in-flight chat stream |

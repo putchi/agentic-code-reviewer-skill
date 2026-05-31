@@ -1,7 +1,7 @@
 {
   "name": "agentic-code-reviewer-skill",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "build":       "bun run --cwd packages/client build",
     "dev":         "bun run --cwd packages/server dev & bun run --cwd packages/client dev",
@@ -9,6 +9,10 @@
     "test":        "bun test tests/",
     "test:unit":   "bun test tests/unit/",
     "test:parity": "bun test tests/parity/",
+    "build:vscode": "bun run --cwd apps/vscode-extension build",
+    "dev:vscode": "bun run --cwd apps/vscode-extension watch",
+    "test:vscode": "bun run --cwd apps/vscode-extension test",
+    "package:vscode": "bun run --cwd apps/vscode-extension package",
     "compile": "bun run build && bun build packages/server/src/index.ts --compile --outfile dist/review-server"
   }
 }

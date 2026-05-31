@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:vscode",
+      "type": "shell",
+      "command": "bun run build",
+      "options": {
+        "cwd": "${workspaceFolder}/apps/vscode-extension"
+      },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "watch:vscode",
+      "type": "shell",
+      "command": "bun run watch",
+      "options": {
+        "cwd": "${workspaceFolder}/apps/vscode-extension"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
