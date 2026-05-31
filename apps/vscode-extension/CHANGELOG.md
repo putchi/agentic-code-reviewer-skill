@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.6] - 2026-05-31
+
+### Changed
+
+- Internal version alignment across plugin manifests.
+
 ## [1.4.5] - 2026-05-31
 
 ### Changed
