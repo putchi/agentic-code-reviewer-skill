@@ -216,9 +216,20 @@ When the optional VS Code extension is installed and active in the workspace, Ag
 
 This runs on Claude Code through the user-level enabled plugin and on Codex through `~/.codex/hooks.json`. It has no Copilot CLI equivalent.
 
+Projects can commit a root-level `.acr.json` repo config to opt out of only the automatic Stop-hook gate:
+
+```json
+{
+  "disableStopHook": true
+}
+```
+
+Only boolean `true` in the committed `HEAD:.acr.json` disables the gate; missing, malformed, non-object, non-boolean, or uncommitted working-tree values are ignored. Manual review commands still work (`/code-review`, Codex skill invocation, and direct `scripts/orchestrator.sh`). Future personal overrides should use a separate ignored file such as `.acr.local.json`; that local override is not implemented today.
+
 The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop event:
 
 - Uses the hook payload `cwd` when present, so Codex can invoke the hook from outside the repo and still review the correct workspace.
+- Reads committed `HEAD:.acr.json` after repo detection and exits silently before diffing when it contains `"disableStopHook": true`.
 - Runs `git diff HEAD` (then `git diff`) with the same exclusions as the orchestrator.
 - Reuses the newest matching `.claude/review-runs/<run-id>` when the diff hash matches; otherwise launches `scripts/orchestrator.sh` with server auto-resume disabled.
 - Writes heartbeat status lines to `stderr` every 10 seconds while waiting. Set `ACR_GATE_STATUS_INTERVAL_SECONDS=0` to disable them.

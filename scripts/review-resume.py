@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
+import re
+import shlex
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 VALID_ACTIONS = {
@@ -20,9 +24,161 @@ ACTION_LABELS = {
     "ignore": "ignore",
 }
 
+IMPLEMENTATION_ACTIONS = {
+    "accept_fix",
+    "ask_claude_to_implement",
+}
+NON_CODE_FOLLOW_UP_ACTIONS = {
+    "ask_claude_to_explain",
+    "create_follow_up_task",
+}
+POST_RESUME_MARKER_TTL_SECONDS = 86400
+POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
+
 
 def action_label(action: str) -> str:
     return ACTION_LABELS.get(action, action)
+
+
+def utc_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def canonical_json_sha256(value: dict) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def repo_marker_key(repo: Path) -> str:
+    return hashlib.sha256(str(repo).encode("utf-8")).hexdigest()
+
+
+def safe_marker_run_id(run_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", run_id.strip())
+    return safe or hashlib.sha256(run_id.encode("utf-8")).hexdigest()
+
+
+def legacy_post_resume_marker_path(repo: Path, tmp_dir: Path = Path("/tmp")) -> Path:
+    return tmp_dir / f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}.json"
+
+
+def post_resume_marker_path(repo: Path, run_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    return tmp_dir / f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_marker_run_id(run_id)}.json"
+
+
+def load_optional_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def load_original_diff_sha256(run_dir: Path) -> str | None:
+    run = load_optional_json(run_dir / "run.json")
+    value = run.get("diff_sha256") if run else None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def diff_token_path(token: str) -> str | None:
+    if token == "/dev/null":
+        return None
+    if token.startswith("a/") or token.startswith("b/"):
+        return token[2:]
+    return None
+
+
+def diff_file_paths(diff: str) -> list[str]:
+    paths: set[str] = set()
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                parts = line.split()
+            for token in parts[2:4]:
+                path = diff_token_path(token)
+                if path:
+                    paths.add(path)
+            continue
+        if line.startswith("--- ") or line.startswith("+++ "):
+            token = line[4:].split("\t", 1)[0].strip()
+            path = diff_token_path(token)
+            if path:
+                paths.add(path)
+    return sorted(paths)
+
+
+def load_original_diff_paths(run_dir: Path) -> list[str]:
+    try:
+        return diff_file_paths((run_dir / "diff.txt").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def decision_actions(decisions: dict) -> set[str]:
+    findings = decisions.get("findings")
+    if not isinstance(findings, dict):
+        return set()
+    actions: set[str] = set()
+    for decision in findings.values():
+        if isinstance(decision, dict) and isinstance(decision.get("action"), str):
+            actions.add(decision["action"])
+    return actions
+
+
+def marker_suppression_mode(decisions: dict) -> str | None:
+    actions = decision_actions(decisions)
+    if actions & IMPLEMENTATION_ACTIONS:
+        return "implementation"
+    if actions & NON_CODE_FOLLOW_UP_ACTIONS:
+        return "same_diff"
+    return None
+
+
+def write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def write_post_resume_marker(
+    repo: Path,
+    run_dir: Path,
+    decisions: dict,
+    now: datetime | None = None,
+    tmp_dir: Path = Path("/tmp"),
+) -> Path | None:
+    original_diff_sha = load_original_diff_sha256(run_dir)
+    if not original_diff_sha:
+        return None
+    suppression_mode = marker_suppression_mode(decisions)
+    if not suppression_mode:
+        return None
+
+    created_at = now or datetime.now(timezone.utc)
+    expires_at = created_at + timedelta(seconds=POST_RESUME_MARKER_TTL_SECONDS)
+    marker = {
+        "schema_version": 1,
+        "repo": str(repo),
+        "run_id": run_dir.name,
+        "original_diff_sha256": original_diff_sha,
+        "original_diff_paths": load_original_diff_paths(run_dir),
+        "decisions_sha256": canonical_json_sha256(decisions),
+        "suppression_mode": suppression_mode,
+        "created_at": utc_timestamp(created_at),
+        "expires_at": utc_timestamp(expires_at),
+    }
+    marker_path = post_resume_marker_path(repo, run_dir.name, tmp_dir)
+    write_json(marker_path, marker)
+    try:
+        legacy_post_resume_marker_path(repo, tmp_dir).unlink()
+    except Exception:
+        pass
+    return marker_path
 
 
 def load_json(path: Path) -> dict:
@@ -84,6 +240,7 @@ def main() -> int:
     synthesis = load_json(synthesis_path)
     decisions = load_json(decisions_path)
     validate_decisions(decisions)
+    write_post_resume_marker(repo, run_dir, decisions)
     by_id = finding_by_id(synthesis)
 
     buckets: dict[str, list[str]] = {action: [] for action in sorted(VALID_ACTIONS)}

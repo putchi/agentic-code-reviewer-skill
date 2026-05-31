@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -47,6 +48,10 @@ ACTION_LABELS = {
 UI_READY_STATUSES = {"awaiting_decisions", "synthesis_failed", "decisions_saved", "decisions_ready", "no_changes"}
 FINAL_ROUTE_ACTIONS = {"implement", "done"}
 DEFAULT_GATE_STATUS_INTERVAL_SECONDS = 10.0
+POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
+POST_RESUME_SKIP_FILE = "review-gate-post-resume-skip.json"
+PROJECT_CONFIG_FILE = ".acr.json"
+DISABLE_STOP_HOOK_KEY = "disableStopHook"
 
 
 class GateError(RuntimeError):
@@ -59,6 +64,34 @@ def read_json(path: Path) -> dict[str, Any] | None:
         return data if isinstance(data, dict) else None
     except Exception:
         return None
+
+
+def parse_json_object(text: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def read_committed_project_config(repo: Path) -> dict[str, Any] | None:
+    try:
+        result = run_capture(
+            ["git", "show", f"HEAD:{PROJECT_CONFIG_FILE}"],
+            repo,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_json_object(result.stdout)
+
+
+def project_config_disables_stop_hook(repo: Path) -> bool:
+    config = read_committed_project_config(repo)
+    return config is not None and config.get(DISABLE_STOP_HOOK_KEY) is True
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -116,6 +149,205 @@ def current_review_diff(repo: Path) -> str:
 
 def diff_sha256(diff: str) -> str:
     return hashlib.sha256(diff.encode("utf-8")).hexdigest()
+
+
+def canonical_json_sha256(value: dict[str, Any]) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def repo_marker_key(repo: Path) -> str:
+    return hashlib.sha256(str(repo).encode("utf-8")).hexdigest()
+
+
+def safe_marker_run_id(run_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", run_id.strip())
+    return safe or hashlib.sha256(run_id.encode("utf-8")).hexdigest()
+
+
+def post_resume_marker_path(repo: Path, run_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    return tmp_dir / f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_marker_run_id(run_id)}.json"
+
+
+def post_resume_marker_paths(repo: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
+    pattern = f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}-*.json"
+    paths = list(tmp_dir.glob(pattern))
+
+    def marker_sort_key(path: Path) -> tuple[float, str]:
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = 0
+        return (mtime, path.name)
+
+    return sorted(paths, key=marker_sort_key, reverse=True)
+
+
+def parse_utc_timestamp(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+
+def diff_token_path(token: str) -> str | None:
+    if token == "/dev/null":
+        return None
+    if token.startswith("a/") or token.startswith("b/"):
+        return token[2:]
+    return None
+
+
+def diff_file_paths(diff: str) -> list[str]:
+    paths: set[str] = set()
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                parts = line.split()
+            for token in parts[2:4]:
+                path = diff_token_path(token)
+                if path:
+                    paths.add(path)
+            continue
+        if line.startswith("--- ") or line.startswith("+++ "):
+            token = line[4:].split("\t", 1)[0].strip()
+            path = diff_token_path(token)
+            if path:
+                paths.add(path)
+    return sorted(paths)
+
+
+def marker_original_paths(marker: dict[str, Any]) -> set[str]:
+    paths = marker.get("original_diff_paths")
+    if not isinstance(paths, list):
+        return set()
+    return {str(path) for path in paths if isinstance(path, str) and path.strip()}
+
+
+def marker_allows_current_diff(marker: dict[str, Any], current_diff_sha: str, current_diff: str) -> bool:
+    original_diff_sha = marker.get("original_diff_sha256")
+    if current_diff_sha == original_diff_sha:
+        return True
+    if marker.get("suppression_mode") != "implementation":
+        return False
+    original_paths = marker_original_paths(marker)
+    current_paths = set(diff_file_paths(current_diff))
+    return bool(original_paths and current_paths and current_paths.issubset(original_paths))
+
+
+def consume_post_resume_marker_path(
+    marker_path: Path,
+    repo: Path,
+    current_diff_sha: str,
+    current_diff: str,
+    session_id: str,
+    now: float | None = None,
+) -> Path | None:
+    marker = read_json(marker_path)
+    if not marker:
+        return None
+
+    def reject() -> None:
+        unlink_quietly(marker_path)
+
+    if marker.get("repo") != str(repo):
+        reject()
+        return None
+
+    run_id = marker.get("run_id")
+    original_diff_sha = marker.get("original_diff_sha256")
+    decisions_sha = marker.get("decisions_sha256")
+    if not isinstance(run_id, str) or not run_id.strip():
+        reject()
+        return None
+    if not isinstance(original_diff_sha, str) or not original_diff_sha.strip():
+        reject()
+        return None
+    if not isinstance(decisions_sha, str) or not decisions_sha.strip():
+        reject()
+        return None
+
+    expires_at = parse_utc_timestamp(marker.get("expires_at"))
+    if expires_at is None or expires_at <= (time.time() if now is None else now):
+        reject()
+        return None
+
+    run_dir = repo / ".claude" / "review-runs" / run_id.strip()
+    run = read_json(run_json_path(run_dir))
+    if not run or run.get("diff_sha256") != original_diff_sha:
+        reject()
+        return None
+
+    decisions = load_decisions(run_dir)
+    if not decisions or canonical_json_sha256(decisions) != decisions_sha:
+        reject()
+        return None
+
+    if marker.get("suppression_mode") not in {"implementation", "same_diff"}:
+        reject()
+        return None
+    if not marker_allows_current_diff(marker, current_diff_sha, current_diff):
+        reject()
+        return None
+
+    write_json(run_dir / POST_RESUME_SKIP_FILE, {
+        "session_id": session_id,
+        "outcome": "allow",
+        "reason": "post_resume_marker",
+        "run_id": run_dir.name,
+        "original_diff_sha256": original_diff_sha,
+        "original_diff_paths": sorted(marker_original_paths(marker)),
+        "current_diff_sha256": current_diff_sha,
+        "current_diff_paths": diff_file_paths(current_diff),
+        "decisions_sha256": decisions_sha,
+        "suppression_mode": marker.get("suppression_mode"),
+        "handled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "marker_created_at": marker.get("created_at"),
+        "marker_expires_at": marker.get("expires_at"),
+    })
+    unlink_quietly(marker_path)
+    return run_dir
+
+
+def consume_post_resume_marker(
+    repo: Path,
+    current_diff_sha: str,
+    current_diff: str,
+    session_id: str,
+    tmp_dir: Path = Path("/tmp"),
+    now: float | None = None,
+) -> Path | None:
+    for marker_path in post_resume_marker_paths(repo, tmp_dir):
+        run_dir = consume_post_resume_marker_path(
+            marker_path,
+            repo,
+            current_diff_sha,
+            current_diff,
+            session_id,
+            now,
+        )
+        if run_dir:
+            return run_dir
+    return None
 
 
 def run_json_path(run_dir: Path) -> Path:
@@ -567,6 +799,8 @@ def run_gate(
     repo = git_root(cwd)
     if not repo:
         return 0
+    if project_config_disables_stop_hook(repo):
+        return 0
 
     diff = current_review_diff(repo)
     if not diff.strip():
@@ -578,6 +812,10 @@ def run_gate(
         return 0
 
     current_hash = diff_sha256(diff)
+    if consume_post_resume_marker(repo, current_hash, diff, session_id):
+        touch(session_done)
+        return 0
+
     deadline = time.time() + max_seconds
 
     try:

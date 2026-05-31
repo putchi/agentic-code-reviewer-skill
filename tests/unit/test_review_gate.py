@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -43,6 +44,59 @@ class ReviewGateTest(unittest.TestCase):
         with contextlib.redirect_stdout(stdout):
             fn(*args)
         return json.loads(stdout.getvalue())
+
+    def write_review_run(
+        self,
+        repo: Path,
+        run_id: str,
+        diff_sha: str,
+        decisions: dict,
+        status: str = "decisions_ready",
+        diff_text: str | None = None,
+    ) -> Path:
+        run_dir = repo / ".claude" / "review-runs" / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.json").write_text(json.dumps({
+            "run_id": run_id,
+            "repo": str(repo),
+            "status": status,
+            "diff_sha256": diff_sha,
+            "agents": review_gate.EXPECTED_AGENTS,
+        }), encoding="utf-8")
+        (run_dir / "decisions.json").write_text(json.dumps(decisions), encoding="utf-8")
+        (run_dir / "diff.txt").write_text(
+            diff_text or "diff --git a/src/app.py b/src/app.py\n",
+            encoding="utf-8",
+        )
+        return run_dir
+
+    def write_post_resume_marker(
+        self,
+        repo: Path,
+        run_dir: Path,
+        decisions: dict,
+        tmp_dir: Path,
+        expires_at: str = "2030-01-01T00:00:00Z",
+        decisions_sha: str | None = None,
+        original_diff_sha: str | None = None,
+        original_paths: list[str] | None = None,
+        suppression_mode: str = "implementation",
+    ) -> Path:
+        run = review_gate.read_json(run_dir / "run.json") or {}
+        marker = {
+            "schema_version": 1,
+            "repo": str(repo),
+            "run_id": run_dir.name,
+            "original_diff_sha256": original_diff_sha or str(run.get("diff_sha256")),
+            "original_diff_paths": original_paths or ["src/app.py"],
+            "decisions_sha256": decisions_sha or review_gate.canonical_json_sha256(decisions),
+            "suppression_mode": suppression_mode,
+            "created_at": "2026-05-31T00:00:00Z",
+            "expires_at": expires_at,
+        }
+        marker_path = review_gate.post_resume_marker_path(repo, run_dir.name, tmp_dir)
+        review_gate.write_json(marker_path, marker)
+        return marker_path
 
     def test_classifies_actionable_decisions_as_block(self) -> None:
         decisions = {
@@ -346,6 +400,449 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(review_gate.newest_matching_run(repo, "match"), new)
             self.assertIsNone(review_gate.newest_matching_run(repo, "missing"))
+
+    def test_project_config_disable_stop_hook_requires_boolean_true(self) -> None:
+        cases = [
+            ("missing", 128, "", False),
+            ("true", 0, json.dumps({"disableStopHook": True}), True),
+            ("false", 0, json.dumps({"disableStopHook": False}), False),
+            ("string-true", 0, json.dumps({"disableStopHook": "true"}), False),
+            ("number-one", 0, json.dumps({"disableStopHook": 1}), False),
+            ("malformed", 0, "{", False),
+            ("non-object", 0, json.dumps(["disableStopHook", True]), False),
+        ]
+        for name, returncode, stdout, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp)
+                original_run_capture = review_gate.run_capture
+                try:
+                    def fake_run_capture(args, cwd, **kwargs):
+                        self.assertEqual(args, ["git", "show", "HEAD:.acr.json"])
+                        self.assertEqual(cwd, repo)
+                        self.assertFalse(kwargs.get("check"))
+                        return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr="")
+
+                    review_gate.run_capture = fake_run_capture
+                    self.assertEqual(review_gate.project_config_disables_stop_hook(repo), expected)
+                finally:
+                    review_gate.run_capture = original_run_capture
+
+    def test_disable_stop_hook_project_config_exits_before_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_launch_review = review_gate.launch_review
+            original_read_committed_project_config = review_gate.read_committed_project_config
+            try:
+                def fake_git_root(cwd: Path) -> Path:
+                    self.assertEqual(cwd, repo)
+                    return repo
+
+                def fake_read_committed_project_config(repo_arg: Path) -> dict:
+                    self.assertEqual(repo_arg, repo)
+                    return {"disableStopHook": True}
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    self.fail("current_review_diff should not be called when .acr.json disables the Stop hook")
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("launch_review should not be called when .acr.json disables the Stop hook")
+
+                review_gate.git_root = fake_git_root
+                review_gate.read_committed_project_config = fake_read_committed_project_config
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.launch_review = fake_launch_review
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": "disabled-stop-hook-test", "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.launch_review = original_launch_review
+                review_gate.read_committed_project_config = original_read_committed_project_config
+
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "")
+
+    def test_missing_committed_project_config_continues_to_diff_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+            (repo / ".acr.json").write_text(json.dumps({"disableStopHook": True}), encoding="utf-8")
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_cleanup = review_gate.cleanup_stale_sentinels
+            original_launch_review = review_gate.launch_review
+            try:
+                seen_diff_repos: list[Path] = []
+
+                def fake_git_root(cwd: Path) -> Path:
+                    self.assertEqual(cwd, repo)
+                    return repo
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    seen_diff_repos.append(repo_arg)
+                    return ""
+
+                def fake_cleanup(*args, **kwargs) -> None:
+                    self.fail("cleanup_stale_sentinels should not be called when there is no diff")
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("launch_review should not be called when there is no diff")
+
+                review_gate.git_root = fake_git_root
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.cleanup_stale_sentinels = fake_cleanup
+                review_gate.launch_review = fake_launch_review
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": "missing-config-test", "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.cleanup_stale_sentinels = original_cleanup
+                review_gate.launch_review = original_launch_review
+
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(seen_diff_repos, [repo])
+
+    def test_valid_post_resume_marker_allows_once_and_consumes_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_implement"}}}
+            run_dir = self.write_review_run(repo, "20260531T140000Z-resume", "original-diff", decisions)
+            marker_path = self.write_post_resume_marker(repo, run_dir, decisions, marker_tmp)
+
+            consumed = review_gate.consume_post_resume_marker(
+                repo,
+                "fix-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "post-resume-session",
+                tmp_dir=marker_tmp,
+                now=review_gate.parse_utc_timestamp("2026-05-31T00:00:01Z"),
+            )
+
+            self.assertEqual(consumed, run_dir)
+            self.assertFalse(marker_path.exists())
+            skip = review_gate.read_json(run_dir / review_gate.POST_RESUME_SKIP_FILE)
+            self.assertIsNotNone(skip)
+            self.assertEqual(skip["reason"], "post_resume_marker")
+            self.assertEqual(skip["current_diff_sha256"], "fix-diff")
+            self.assertEqual(skip["original_diff_sha256"], "original-diff")
+
+            self.assertIsNone(review_gate.consume_post_resume_marker(
+                repo,
+                "another-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "later-session",
+                tmp_dir=marker_tmp,
+            ))
+
+    def test_expired_post_resume_marker_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "accept_fix"}}}
+            run_dir = self.write_review_run(repo, "20260531T140001Z-expired", "original-diff", decisions)
+            marker_path = self.write_post_resume_marker(
+                repo,
+                run_dir,
+                decisions,
+                marker_tmp,
+                expires_at="2026-05-30T00:00:00Z",
+            )
+
+            consumed = review_gate.consume_post_resume_marker(
+                repo,
+                "fix-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "expired-session",
+                tmp_dir=marker_tmp,
+                now=review_gate.parse_utc_timestamp("2026-05-31T00:00:00Z"),
+            )
+
+            self.assertIsNone(consumed)
+            self.assertFalse(marker_path.exists())
+            self.assertFalse((run_dir / review_gate.POST_RESUME_SKIP_FILE).exists())
+
+    def test_decisions_hash_mismatch_post_resume_marker_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_explain"}}}
+            run_dir = self.write_review_run(repo, "20260531T140002Z-mismatch", "original-diff", decisions)
+            marker_path = self.write_post_resume_marker(
+                repo,
+                run_dir,
+                decisions,
+                marker_tmp,
+                decisions_sha="not-the-current-decisions",
+            )
+
+            consumed = review_gate.consume_post_resume_marker(
+                repo,
+                "fix-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "mismatch-session",
+                tmp_dir=marker_tmp,
+            )
+
+            self.assertIsNone(consumed)
+            self.assertFalse(marker_path.exists())
+            self.assertFalse((run_dir / review_gate.POST_RESUME_SKIP_FILE).exists())
+
+    def test_post_resume_marker_rejects_disjoint_current_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_implement"}}}
+            run_dir = self.write_review_run(repo, "20260531T140003Z-disjoint", "original-diff", decisions)
+            marker_path = self.write_post_resume_marker(repo, run_dir, decisions, marker_tmp)
+
+            consumed = review_gate.consume_post_resume_marker(
+                repo,
+                "unrelated-diff",
+                "diff --git a/docs/readme.md b/docs/readme.md\n",
+                "disjoint-session",
+                tmp_dir=marker_tmp,
+            )
+
+            self.assertIsNone(consumed)
+            self.assertFalse(marker_path.exists())
+            self.assertFalse((run_dir / review_gate.POST_RESUME_SKIP_FILE).exists())
+
+    def test_post_resume_marker_rejects_current_diff_with_extra_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_implement"}}}
+            run_dir = self.write_review_run(repo, "20260531T140005Z-extra-paths", "original-diff", decisions)
+            marker_path = self.write_post_resume_marker(repo, run_dir, decisions, marker_tmp)
+
+            consumed = review_gate.consume_post_resume_marker(
+                repo,
+                "implementation-plus-extra-diff",
+                "\n".join([
+                    "diff --git a/src/app.py b/src/app.py",
+                    "diff --git a/docs/readme.md b/docs/readme.md",
+                    "",
+                ]),
+                "extra-paths-session",
+                tmp_dir=marker_tmp,
+            )
+
+            self.assertIsNone(consumed)
+            self.assertFalse(marker_path.exists())
+            self.assertFalse((run_dir / review_gate.POST_RESUME_SKIP_FILE).exists())
+
+    def test_non_code_post_resume_marker_only_allows_same_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            marker_tmp = root / "tmp"
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_explain"}}}
+            run_dir = self.write_review_run(repo, "20260531T140004Z-same-only", "original-diff", decisions)
+            changed_marker = self.write_post_resume_marker(
+                repo,
+                run_dir,
+                decisions,
+                marker_tmp,
+                suppression_mode="same_diff",
+            )
+            changed = review_gate.consume_post_resume_marker(
+                repo,
+                "changed-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "changed-session",
+                tmp_dir=marker_tmp,
+            )
+            self.assertIsNone(changed)
+            self.assertFalse(changed_marker.exists())
+
+            same_marker = self.write_post_resume_marker(
+                repo,
+                run_dir,
+                decisions,
+                marker_tmp,
+                suppression_mode="same_diff",
+            )
+            same = review_gate.consume_post_resume_marker(
+                repo,
+                "original-diff",
+                "diff --git a/src/app.py b/src/app.py\n",
+                "same-session",
+                tmp_dir=marker_tmp,
+            )
+            self.assertEqual(same, run_dir)
+            self.assertFalse(same_marker.exists())
+
+    def test_same_diff_actionable_decisions_require_resume_marker_to_allow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            marker_tmp = root / "tmp"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+
+            diff = "diff --git a/file b/file\n"
+            diff_sha = review_gate.diff_sha256(diff)
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_implement"}}}
+            run_dir = self.write_review_run(repo, "20260531T140003Z-same-diff", diff_sha, decisions)
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_newest_matching_run = review_gate.newest_matching_run
+            original_launch_review = review_gate.launch_review
+            original_marker_paths = review_gate.post_resume_marker_paths
+            try:
+                def fake_git_root(cwd: Path) -> Path:
+                    return repo
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    self.assertEqual(repo_arg, repo)
+                    return diff
+
+                def fake_newest_matching_run(repo_arg: Path, expected_diff_sha: str) -> Path:
+                    self.assertEqual(repo_arg, repo)
+                    self.assertEqual(expected_diff_sha, diff_sha)
+                    return run_dir
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("launch_review should not be called when a matching run exists")
+
+                def fake_marker_paths(repo_arg: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
+                    self.assertEqual(repo_arg, repo)
+                    return sorted(marker_tmp.glob("*.json"))
+
+                review_gate.git_root = fake_git_root
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.newest_matching_run = fake_newest_matching_run
+                review_gate.launch_review = fake_launch_review
+                review_gate.post_resume_marker_paths = fake_marker_paths
+
+                without_marker_session = "same-diff-without-marker"
+                without_done = review_gate.done_file(without_marker_session)
+                try:
+                    without_done.unlink()
+                except FileNotFoundError:
+                    pass
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": without_marker_session, "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+                self.assertEqual(result, 0)
+                payload = json.loads(stdout.getvalue())
+                self.assertEqual(payload["decision"], "block")
+                try:
+                    without_done.unlink()
+                except FileNotFoundError:
+                    pass
+
+                marker_path = self.write_post_resume_marker(repo, run_dir, decisions, marker_tmp)
+                with_marker_session = "same-diff-with-marker"
+                with_done = review_gate.done_file(with_marker_session)
+                try:
+                    with_done.unlink()
+                except FileNotFoundError:
+                    pass
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": with_marker_session, "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+                self.assertEqual(result, 0)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertTrue(with_done.exists())
+                self.assertFalse(marker_path.exists())
+                self.assertEqual(
+                    (review_gate.read_json(run_dir / review_gate.POST_RESUME_SKIP_FILE) or {}).get("reason"),
+                    "post_resume_marker",
+                )
+                try:
+                    with_done.unlink()
+                except FileNotFoundError:
+                    pass
+
+                later_session = "same-diff-after-consumed-marker"
+                later_done = review_gate.done_file(later_session)
+                try:
+                    later_done.unlink()
+                except FileNotFoundError:
+                    pass
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": later_session, "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+                self.assertEqual(result, 0)
+                payload = json.loads(stdout.getvalue())
+                self.assertEqual(payload["decision"], "block")
+                try:
+                    later_done.unlink()
+                except FileNotFoundError:
+                    pass
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.newest_matching_run = original_newest_matching_run
+                review_gate.launch_review = original_launch_review
+                review_gate.post_resume_marker_paths = original_marker_paths
 
     def test_direct_plan_mode_hook_without_diff_exits_without_launch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
