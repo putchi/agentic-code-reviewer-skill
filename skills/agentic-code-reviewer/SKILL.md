@@ -1,9 +1,11 @@
 ---
 name: agentic-code-reviewer
 description: >
-  Launches a fully backgrounded local code-review run. The slash command starts
-  an external orchestrator and returns immediately; reviewer and synthesis work
-  happens in separate non-interactive provider CLI processes.
+  Launches a fully backgrounded local code-review run for the current repo. Use
+  when the user asks to run code-review, run the code-reviewer skill, run the
+  agentic-code-reviewer skill, or run a code review on this repo. The launcher
+  starts an external orchestrator and returns immediately; reviewer and synthesis
+  work happens in separate non-interactive provider CLI processes.
 ---
 
 # Agentic Code Review
@@ -13,7 +15,11 @@ by the process-based orchestrator in `scripts/`.
 
 ## Runtime Model
 
-`/agentic-code-reviewer` runs:
+Codex should treat requests like `run code-review on this repo`, `run the
+code-reviewer skill`, or `run the agentic-code-reviewer skill` as requests to
+launch this skill.
+
+`/code-review` runs:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"

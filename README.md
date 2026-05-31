@@ -6,7 +6,7 @@ A portable skill that launches a background code-review run for your git diff. I
 
 Five specialist reviewers — semantic, security, architecture, test-coverage, senior-dev — each inspect the same filtered diff from their own angle and return structured JSON findings with confidence >=80. The Synthesizer reads the diff plus all reviewer result files, drops weak or duplicate findings, resolves contradictions, re-rates severity by actual blast radius, and writes a 2-sentence top-line verdict to `synthesis.json`.
 
-The current runtime is process-based: `/agentic-code-reviewer` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
+The current runtime is process-based: `/code-review` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
 On Claude Code there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a completed/UI-ready state, with a one-time escape hatch. On Codex you invoke the skill manually; review subprocesses run through `codex exec`.
 
@@ -33,7 +33,7 @@ Advanced overrides:
 
 ## How it works
 
-1. **Launch.** `/agentic-code-reviewer` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`.
+1. **Launch.** `/code-review` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`.
 2. **Snapshot.** The orchestrator validates required tools, creates `.claude/review-runs/<run-id>/`, captures `git diff --text HEAD` with excludes for lockfiles, minified assets, images, archives, and build directories, then writes `diff.txt` and `context.json`. PR mode uses `gh pr view` and `gh pr diff`.
 3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess uses the resolved provider command against the same `diff.txt` and writes `agents/<reviewer>.json`.
 4. **Synthesize.** `scripts/run-synthesizer.sh` runs after all reviewer files are present. It writes `synthesis.json`; if synthesis fails, `scripts/claude_json.py synthesis-fallback` aggregates raw reviewer findings into a fallback result.
@@ -45,7 +45,7 @@ Advanced overrides:
 | Feature | Claude Code | Codex | Copilot CLI |
 |---|---|---|---|
 | Background process fan-out | ✅ via `claude` | ✅ via `codex exec` | ⚠ manual/untested |
-| Skill invocation | `/agentic-code-reviewer` + Stop-hook prompt | skills load natively | manual copy/untested |
+| Skill invocation | `/code-review` + Stop-hook prompt | skills load natively | manual copy/untested |
 | Session-exit auto-gate | ✅ | ❌ | ❌ |
 | Interactive review web UI | ✅ | ✅ | ⚠ untested |
 | Auto-resume after UI decisions | ✅ via `CLAUDE_SESSION_ID` | ✅ via `CODEX_THREAD_ID` when available | ❌ |
@@ -124,8 +124,8 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/agentic-code-reviewer` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop-hook gate will also prompt the agent to run `/agentic-code-reviewer` when you try to end a session with unreviewed changes.
-- **Codex**: skills load natively — tell the agent `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer` and shells out to `codex exec` for reviewer subprocesses.
+- **Claude Code**: run `/code-review` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop-hook gate will also prompt the agent to run `/code-review` when you try to end a session with unreviewed changes.
+- **Codex**: skills load natively — tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer` and shells out to `codex exec` for reviewer subprocesses.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
 Empty diffs exit cleanly by writing a no-findings `synthesis.json` and setting the run status to `no_changes`.
@@ -253,7 +253,7 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 │   ├── test-coverage-analyzer.md
 │   ├── senior-dev-reviewer.md
 │   └── synthesizer.md
-├── commands/agentic-code-reviewer.md   # Claude Code slash command
+├── commands/code-review.md             # Claude Code slash command
 ├── commands/pr-review.md               # /pr-review <number|URL> command
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
