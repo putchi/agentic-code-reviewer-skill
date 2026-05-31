@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO=""
 PR=""
+PLATFORM_ARG=""
 STATUS_INTERVAL="${ACR_STATUS_INTERVAL_SECONDS:-20}"
 STATUS_MAX_SECONDS="${ACR_STATUS_MAX_SECONDS:-1800}"
 
@@ -12,9 +13,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --pr) PR="$2"; shift 2 ;;
+    --platform) PLATFORM_ARG="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+source "${SCRIPT_DIR}/acr-runtime.sh"
+ACR_PLATFORM="$(acr_detect_platform "$PLUGIN_ROOT" "$PLATFORM_ARG")"
+export ACR_PLATFORM
+ACR_REVIEW_PROVIDER="$(acr_detect_provider "$PLUGIN_ROOT" "$ACR_PLATFORM")"
+export ACR_REVIEW_PROVIDER
 
 if [ -z "$REPO" ]; then
   REPO="$(pwd)"
@@ -28,11 +36,7 @@ if ! command -v git >/dev/null 2>&1; then
   echo "ERROR: git is required for agentic code review." >&2
   exit 1
 fi
-CLAUDE_BIN="${ACR_CLAUDE_BIN:-claude}"
-if ! command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
-  echo "ERROR: claude CLI with --print support is required before starting a background review." >&2
-  exit 1
-fi
+acr_validate_provider "$ACR_REVIEW_PROVIDER"
 if [ -n "$PR" ] && ! command -v gh >/dev/null 2>&1; then
   echo "ERROR: gh is required for PR review mode." >&2
   exit 1
@@ -52,6 +56,8 @@ ARGS=(
   "--run-id" "$RUN_ID"
   "--run-dir" "$RUN_DIR"
   "--plugin-root" "$PLUGIN_ROOT"
+  "--platform" "${ACR_PLATFORM:-}"
+  "--provider" "$ACR_REVIEW_PROVIDER"
 )
 if [ -n "$PR" ]; then
   ARGS+=("--pr" "$PR")
@@ -119,6 +125,8 @@ agent_done = 0
 agent_failed = 0
 finding_count = 0
 for path in (run_dir / "agents").glob("*.json"):
+    if path.name.endswith(".raw.json"):
+        continue
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:

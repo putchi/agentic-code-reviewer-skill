@@ -289,7 +289,7 @@ export default function App() {
             findings={findings}
             findingActions={findingActions}
             comments={comments}
-            model={settings.chatModel}
+            settings={settings}
             currentFile={selectedFile ?? undefined}
             chatPrefill={chatPrefill}
             commentsFocusToken={commentsFocusToken}

@@ -3,12 +3,12 @@ import { createChatSession, abortChat } from '../lib/api';
 
 export interface ChatMessage {
   id: number;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'error';
   text: string;
   streaming?: boolean;
 }
 
-export function useChat(model: string) {
+export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const sessionRef = useRef<string | null>(null);
@@ -18,7 +18,7 @@ export function useChat(model: string) {
   async function send(prompt: string, currentFile?: string) {
     if (streaming) return;
     if (!sessionRef.current) {
-      sessionRef.current = await createChatSession(model);
+      sessionRef.current = await createChatSession();
     }
 
     const userId = ++idCounter.current;

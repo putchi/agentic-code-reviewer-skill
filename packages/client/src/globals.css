@@ -1540,6 +1540,13 @@ html, body { overflow-x: auto; }
   text-align: left;
 }
 .radiocard:hover { background: var(--bg-hover); border-color: var(--border-default); }
+.radiocard--readonly {
+  cursor: default;
+}
+.radiocard--readonly:hover {
+  background: var(--accent-soft);
+  border-color: rgba(79,140,255,0.45);
+}
 .radiocard[data-checked] {
   background: var(--accent-soft);
   border-color: rgba(79,140,255,0.45);

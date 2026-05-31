@@ -3,7 +3,7 @@ name: agentic-code-reviewer
 description: >
   Launches a fully backgrounded local code-review run. The slash command starts
   an external orchestrator and returns immediately; reviewer and synthesis work
-  happens in separate non-interactive Claude CLI processes.
+  happens in separate non-interactive provider CLI processes.
 ---
 
 # Agentic Code Review
@@ -40,9 +40,9 @@ automatically. `hooks/code-review-gate.sh` delegates to
 newest matching run when possible, otherwise launches the orchestrator, then
 waits for the Web UI final action.
 
-Claude Code named subagents are not used as the review execution primitive. The
-five reviewers run as independent `claude --print --output-format json`
-processes through `scripts/run-reviewer.sh`, one output file per reviewer:
+Claude Code named subagents and Codex `spawn_agent` are not used as the review
+execution primitive. The five reviewers run as independent provider subprocesses
+through `scripts/run-reviewer.sh`, one output file per reviewer:
 
 - `agents/semantic-analyzer.json`
 - `agents/security-scanner.json`
@@ -53,6 +53,15 @@ processes through `scripts/run-reviewer.sh`, one output file per reviewer:
 The synthesizer runs only after all five reviewer result files exist and parse.
 It writes `synthesis.json`, and the Bun review UI is launched with
 `--run-dir <path>`.
+
+Runtime provider selection is automatic:
+
+- Claude Code uses `claude --print --output-format json`
+- Codex uses `codex exec --json --sandbox read-only`
+
+Override with `ACR_PLATFORM`, `ACR_REVIEW_PROVIDER`, `ACR_CLAUDE_BIN`,
+`ACR_CODEX_BIN`, `ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`,
+or `ACR_CODEX_REASONING_*`.
 
 ## Run Directory
 
@@ -82,8 +91,8 @@ partial evidence.
 When the Stop hook launched or is watching the run, the UI action is handled
 automatically. Implement / Done / confirmed Dismiss write final decisions; Save
 decisions is non-final and keeps the hook waiting. If any decision is
-actionable, the hook wakes Claude with instructions to run the resume reader and
-act on the result. If all findings are ignored or there is no work, the hook
+actionable, the hook wakes the host agent with instructions to run the resume
+reader and act on the result. If all findings are ignored or there is no work, the hook
 allows the session to finish.
 
 Manual fallback:
@@ -93,9 +102,9 @@ Manual fallback:
 ```
 
 The resume command reads `synthesis.json` and `decisions.json`, validates the
-decision actions, and prints deterministic implementation instructions. Claude
-then implements only findings marked `ask_claude_to_implement` or `accept_fix`,
-skips `ignore`, answers `ask_claude_to_explain`, and records
+decision actions, and prints deterministic implementation instructions. The
+host agent then implements only findings marked `ask_claude_to_implement` or
+`accept_fix`, skips `ignore`, answers `ask_claude_to_explain`, and records
 `create_follow_up_task` items for the user.
 
 ## Decision Actions

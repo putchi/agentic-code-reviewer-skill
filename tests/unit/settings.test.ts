@@ -11,6 +11,7 @@ function cleanSettings() {
   if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
   settingsDir = mkdtempSync(resolve(tmpdir(), 'acr-settings-test-'));
   process.env.ACR_SETTINGS_DIR = settingsDir;
+  process.env.ACR_PLATFORM = 'claude';
 }
 
 function settingsFile() {
@@ -27,20 +28,23 @@ describe('loadSettings', () => {
   afterEach(() => {
     if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
     delete process.env.ACR_SETTINGS_DIR;
+    delete process.env.ACR_PLATFORM;
     settingsDir = '';
   });
 
   test('returns defaults when file does not exist', () => {
     const s = loadSettings();
     expect(s.autoCloseMs).toBe(0);
-    expect(s.chatModel).toBe('claude-sonnet-4-6');
+    expect(s.provider).toBe('claude');
+    expect(s.chatModel).toBe('sonnet');
+    expect(s.chatModelLabel).toBe('Claude Sonnet');
     expect(s.firstRunDone).toBe(false);
   });
 
-  test('merges file values with defaults (missing keys filled in)', () => {
+  test('migrates legacy chatModel values to read-only runtime metadata', () => {
     writeSettings({ chatModel: 'claude-opus-4-7' });
     const s = loadSettings();
-    expect(s.chatModel).toBe('claude-opus-4-7');
+    expect(s.chatModel).toBe('sonnet');
     expect(s.autoCloseMs).toBe(0);
     expect(s.firstRunDone).toBe(false);
   });
@@ -49,7 +53,7 @@ describe('loadSettings', () => {
     writeSettings('NOT_VALID_JSON');
     const s = loadSettings();
     expect(s.autoCloseMs).toBe(0);
-    expect(s.chatModel).toBe('claude-sonnet-4-6');
+    expect(s.chatModel).toBe('sonnet');
   });
 });
 
@@ -58,14 +62,15 @@ describe('saveSettings', () => {
   afterEach(() => {
     if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
     delete process.env.ACR_SETTINGS_DIR;
+    delete process.env.ACR_PLATFORM;
     settingsDir = '';
   });
 
   test('persists only changed key; others remain at default', () => {
-    saveSettings({ chatModel: 'claude-opus-4-7' });
+    saveSettings({ autoCloseMs: 5000 });
     const s = loadSettings();
-    expect(s.chatModel).toBe('claude-opus-4-7');
-    expect(s.autoCloseMs).toBe(0);
+    expect(s.chatModel).toBe('sonnet');
+    expect(s.autoCloseMs).toBe(5000);
     expect(s.firstRunDone).toBe(false);
   });
 
@@ -88,6 +93,7 @@ describe('settings response shape', () => {
   afterEach(() => {
     if (settingsDir) rmSync(settingsDir, { recursive: true, force: true });
     delete process.env.ACR_SETTINGS_DIR;
+    delete process.env.ACR_PLATFORM;
     settingsDir = '';
     try { unlinkSync(DEFAULT_FX); } catch {}
   });
@@ -96,12 +102,17 @@ describe('settings response shape', () => {
     const s = loadSettings();
     expect('autoCloseMs' in s).toBe(true);
     expect('chatModel' in s).toBe(true);
+    expect('chatModelLabel' in s).toBe(true);
+    expect('platform' in s).toBe(true);
+    expect('provider' in s).toBe(true);
+    expect('providerLabel' in s).toBe(true);
+    expect('modelRole' in s).toBe(true);
     expect('firstRunDone' in s).toBe(true);
   });
 
-  test('saveSettings response includes updated chatModel', () => {
+  test('saveSettings ignores readonly chatModel patches', () => {
     const result = saveSettings({ chatModel: 'claude-haiku-4-5-20251001' });
-    expect(result.chatModel).toBe('claude-haiku-4-5-20251001');
-    expect(loadSettings().chatModel).toBe('claude-haiku-4-5-20251001');
+    expect(result.chatModel).toBe('sonnet');
+    expect(loadSettings().chatModel).toBe('sonnet');
   });
 });

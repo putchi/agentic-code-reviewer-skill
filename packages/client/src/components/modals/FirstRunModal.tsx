@@ -8,29 +8,7 @@ interface Props {
   onSave: (patch: Partial<Settings>) => Promise<Settings> | Settings | void;
 }
 
-const MODELS = [
-  {
-    value: 'claude-sonnet-4-6',
-    title: 'Claude Sonnet 4.6',
-    sub: 'Balanced — fast and capable',
-    tag: 'default',
-  },
-  {
-    value: 'claude-opus-4-7',
-    title: 'Claude Opus 4.7',
-    sub: 'Most capable, slower',
-    tag: null,
-  },
-  {
-    value: 'claude-haiku-4-5-20251001',
-    title: 'Claude Haiku 4.5',
-    sub: 'Fastest, lightest',
-    tag: null,
-  },
-];
-
 export default function FirstRunModal({ settings, onSave }: Props) {
-  const [chatModel, setChatModel] = useState(settings.chatModel);
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(settings.autoCloseMs > 0);
   const [autoCloseSec, setAutoCloseSec] = useState(
     Math.max(Math.round(settings.autoCloseMs / 1000) || 3, 1)
@@ -51,7 +29,6 @@ export default function FirstRunModal({ settings, onSave }: Props) {
 
   function handleSave() {
     void persist({
-      chatModel,
       autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
       firstRunDone: true,
     });
@@ -79,27 +56,16 @@ export default function FirstRunModal({ settings, onSave }: Props) {
         <div className="modal__body">
           <div className="modal__main">
             <section>
-              <div className="modal__section-label">Chat model</div>
+              <div className="modal__section-label">AI runtime</div>
               <div className="modal__radiogroup">
-                {MODELS.map(m => (
-                  <div
-                    key={m.value}
-                    className="radiocard"
-                    data-checked={chatModel === m.value ? '' : undefined}
-                    onClick={() => setChatModel(m.value)}
-                    role="radio"
-                    aria-checked={chatModel === m.value}
-                    tabIndex={0}
-                    onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') setChatModel(m.value); }}
-                  >
-                    <div className="radiocard__radio" />
-                    <div className="radiocard__content">
-                      <div className="radiocard__title">{m.title}</div>
-                      <div className="radiocard__sub">{m.sub}</div>
-                    </div>
-                    {m.tag && <div className="radiocard__tag">{m.tag}</div>}
+                <div className="radiocard radiocard--readonly" data-checked aria-disabled="true">
+                  <div className="radiocard__radio" />
+                  <div className="radiocard__content">
+                    <div className="radiocard__title">{settings.providerLabel}</div>
+                    <div className="radiocard__sub">{settings.chatModelLabel} · {settings.modelRole}</div>
                   </div>
-                ))}
+                  <div className="radiocard__tag">active</div>
+                </div>
               </div>
             </section>
 

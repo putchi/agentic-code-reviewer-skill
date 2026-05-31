@@ -79,6 +79,8 @@ class Orchestrator:
         self.run_dir = Path(args.run_dir).resolve()
         self.plugin_root = Path(args.plugin_root).resolve()
         self.pr = args.pr
+        self.platform = args.platform or os.environ.get("ACR_PLATFORM", "")
+        self.provider = args.provider or os.environ.get("ACR_REVIEW_PROVIDER", "claude")
         self.review_timeout = args.review_timeout
         self.synthesis_timeout = args.synthesis_timeout
         self.run_file = self.run_dir / "run.json"
@@ -96,6 +98,8 @@ class Orchestrator:
             "repo": str(self.repo),
             "run_dir": str(self.run_dir),
             "status": status,
+            "platform": self.platform,
+            "provider": self.provider,
             "updated_at": utc_now(),
         })
         current.update(extra)
@@ -218,11 +222,16 @@ class Orchestrator:
         cmd.extend([
             "--run-dir", str(self.run_dir),
             "--session", self.run_id,
+            "--platform", self.platform,
             "--save-dir", str(self.repo / "docs" / "code-reviews"),
         ])
         log = open(self.run_dir / "ui.log", "ab")
         env = os.environ.copy()
         env["CLAUDE_PLUGIN_ROOT"] = str(self.plugin_root)
+        if self.platform:
+            env["ACR_PLATFORM"] = self.platform
+        if self.provider:
+            env["ACR_REVIEW_PROVIDER"] = self.provider
         proc = subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, env=env)
         (self.run_dir / "ui.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
         (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
@@ -273,6 +282,8 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--plugin-root", required=True)
+    parser.add_argument("--platform", default="")
+    parser.add_argument("--provider", default="")
     parser.add_argument("--pr")
     parser.add_argument("--review-timeout", type=int, default=int(os.environ.get("ACR_REVIEW_TIMEOUT_SECONDS", "900")))
     parser.add_argument("--synthesis-timeout", type=int, default=int(os.environ.get("ACR_SYNTHESIS_TIMEOUT_SECONDS", "600")))

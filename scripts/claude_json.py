@@ -26,41 +26,76 @@ def write_atomic(path: Path, value: dict) -> None:
     tmp.replace(path)
 
 
+def extract_text_from_obj(obj: object) -> list[str]:
+    pieces: list[str] = []
+    if isinstance(obj, str):
+        return [obj]
+    if not isinstance(obj, dict):
+        return pieces
+
+    for key in ("result", "text", "output", "delta"):
+        value = obj.get(key)
+        if isinstance(value, str):
+            pieces.append(value)
+
+    content = obj.get("content")
+    if isinstance(content, str):
+        pieces.append(content)
+    elif isinstance(content, list):
+        for item in content:
+            pieces.extend(extract_text_from_obj(item))
+
+    message = obj.get("message")
+    if isinstance(message, dict):
+        pieces.extend(extract_text_from_obj(message))
+    elif isinstance(message, str):
+        pieces.append(message)
+
+    item = obj.get("item")
+    if isinstance(item, dict) and item.get("type") == "agent_message":
+        text = item.get("text")
+        if isinstance(text, str):
+            pieces.append(text)
+
+    return pieces
+
+
+def extract_jsonl_text(raw: str) -> str:
+    pieces: list[str] = []
+    last_agent_message = ""
+    parsed_any = False
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        parsed_any = True
+        if isinstance(parsed, dict):
+            item = parsed.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+                last_agent_message = item["text"]
+                continue
+        pieces.extend(extract_text_from_obj(parsed))
+
+    if last_agent_message:
+        return last_agent_message
+    return "\n".join(pieces) if parsed_any and pieces else raw
+
+
 def extract_text(raw: str) -> str:
     try:
         parsed = json.loads(raw)
     except Exception:
-        return raw
+        return extract_jsonl_text(raw)
 
     if isinstance(parsed, str):
         return parsed
     if not isinstance(parsed, dict):
         return raw
-    for key in ("result", "text", "output"):
-        if isinstance(parsed.get(key), str):
-            return parsed[key]
-
-    pieces: list[str] = []
-    content = parsed.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                pieces.append(item["text"])
-            elif isinstance(item, str):
-                pieces.append(item)
-
-    message = parsed.get("message")
-    if isinstance(message, dict):
-        m_content = message.get("content")
-        if isinstance(m_content, list):
-            for item in m_content:
-                if isinstance(item, dict) and isinstance(item.get("text"), str):
-                    pieces.append(item["text"])
-        elif isinstance(m_content, str):
-            pieces.append(m_content)
-
+    pieces = extract_text_from_obj(parsed)
     return "\n".join(pieces) if pieces else raw
 
 
@@ -79,7 +114,7 @@ def extract_json_object(text: str) -> dict:
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end == -1 or end <= start:
-        raise ValueError("no JSON object found in Claude output")
+        raise ValueError("no JSON object found in model output")
     parsed = json.loads(stripped[start : end + 1])
     if not isinstance(parsed, dict):
         raise ValueError("top-level JSON value is not an object")

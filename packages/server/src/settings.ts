@@ -1,16 +1,20 @@
 import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { PLUGIN_ROOT } from './config';
+import { PLUGIN_ROOT, detectPlatform } from './config';
+import { buildRuntimeMetadata, type RuntimeMetadata } from './runtime';
 
-export interface Settings {
+interface PersistedSettings {
   autoCloseMs: number;
-  chatModel: string;
   firstRunDone: boolean;
 }
 
-const DEFAULTS: Settings = {
+export interface Settings extends RuntimeMetadata {
+  autoCloseMs: number;
+  firstRunDone: boolean;
+}
+
+const DEFAULTS: PersistedSettings = {
   autoCloseMs: 0,
-  chatModel: 'claude-sonnet-4-6',
   firstRunDone: false,
 };
 
@@ -31,14 +35,32 @@ function hasExplicitSettingsPath(): boolean {
   return Boolean(process.env.ACR_SETTINGS_FILE || process.env.ACR_SETTINGS_DIR);
 }
 
-function readSettingsFile(path: string): Settings | null {
-  if (!existsSync(path)) return null;
-  const raw = readFileSync(path, 'utf8');
-  const parsed = JSON.parse(raw) as Partial<Settings>;
-  return { ...DEFAULTS, ...parsed };
+function hydrateSettings(settings: Partial<PersistedSettings> | null): Settings {
+  return {
+    ...DEFAULTS,
+    ...(settings || {}),
+    ...buildRuntimeMetadata({ explicitPlatform: detectPlatform(), pluginRoot: PLUGIN_ROOT, modelRole: 'balanced' }),
+  };
 }
 
-function writeSettingsFile(path: string, settings: Settings): void {
+function readSettingsFile(path: string): PersistedSettings | null {
+  if (!existsSync(path)) return null;
+  const raw = readFileSync(path, 'utf8');
+  const parsed = JSON.parse(raw) as Partial<PersistedSettings> & { chatModel?: string };
+  return {
+    autoCloseMs: typeof parsed.autoCloseMs === 'number' ? parsed.autoCloseMs : DEFAULTS.autoCloseMs,
+    firstRunDone: typeof parsed.firstRunDone === 'boolean' ? parsed.firstRunDone : DEFAULTS.firstRunDone,
+  };
+}
+
+function toPersistedSettings(settings: Partial<Settings>): PersistedSettings {
+  return {
+    autoCloseMs: typeof settings.autoCloseMs === 'number' ? settings.autoCloseMs : DEFAULTS.autoCloseMs,
+    firstRunDone: typeof settings.firstRunDone === 'boolean' ? settings.firstRunDone : DEFAULTS.firstRunDone,
+  };
+}
+
+function writeSettingsFile(path: string, settings: PersistedSettings): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
@@ -49,7 +71,7 @@ export function loadSettings(): Settings {
   try {
     const settingsFile = resolveSettingsFile();
     const persisted = readSettingsFile(settingsFile);
-    if (persisted) return persisted;
+    if (persisted) return hydrateSettings(persisted);
 
     if (!hasExplicitSettingsPath()) {
       const legacySettingsFile = resolveLegacySettingsFile();
@@ -61,23 +83,23 @@ export function loadSettings(): Settings {
           } catch {
             // Loading legacy settings is still better than forcing first-run again.
           }
-          return legacy;
+          return hydrateSettings(legacy);
         }
       }
     }
   } catch {
     // Fall through to defaults when persisted settings are unreadable.
   }
-  return { ...DEFAULTS };
+  return hydrateSettings(DEFAULTS);
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
   const current = loadSettings();
-  const updated = { ...current, ...patch };
+  const updated = toPersistedSettings({ ...current, ...patch });
   try {
     writeSettingsFile(resolveSettingsFile(), updated);
   } catch (e: any) {
     throw new Error(`Failed to save settings to ${resolveSettingsFile()}: ${e.message}`);
   }
-  return updated;
+  return hydrateSettings(updated);
 }

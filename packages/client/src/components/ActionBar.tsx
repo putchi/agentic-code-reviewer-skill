@@ -99,7 +99,7 @@ export default function ActionBar({
       </div>
       <div className="abar__spacer" />
       {resumeCommand && (
-        <span className="abar__resume mono" title="Run this in Claude Code after saving decisions">
+        <span className="abar__resume mono" title="Run this in the host agent after saving decisions">
           {resumeCommand}
         </span>
       )}

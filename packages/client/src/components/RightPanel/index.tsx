@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Finding, FindingAction, LineAnnotation } from '@acr/shared';
+import type { Settings } from '../../lib/api';
 import CommentsPanel from './CommentsPanel';
 import ChatPanel from './ChatPanel';
 
@@ -7,7 +8,7 @@ interface Props {
   findings: Finding[];
   findingActions: Record<string, FindingAction | ''>;
   comments: Record<string, string>;
-  model: string;
+  settings: Settings;
   currentFile?: string;
   chatPrefill?: { id: number; prompt: string } | null;
   commentsFocusToken?: number;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export default function RightPanel({
-  findings, findingActions, comments, model,
+  findings, findingActions, comments, settings,
   currentFile, chatPrefill, commentsFocusToken, annotations,
   onCommentChange, onRemoveAnnotation, onClose,
 }: Props) {
@@ -83,7 +84,8 @@ export default function RightPanel({
       )}
       {activeTab === 'chat' && (
         <ChatPanel
-          model={model}
+          providerLabel={settings.providerLabel}
+          chatModelLabel={settings.chatModelLabel}
           currentFile={currentFile}
           prefillTrigger={chatPrefill}
         />

@@ -27,7 +27,7 @@ export default function CommentsPanel({
             </svg>
           </div>
           <div style={{ color: 'var(--fg-default)', fontWeight: 500, marginBottom: 4 }}>No finding decisions</div>
-          <div>Choose actions on the left to add per-finding instructions for Claude.</div>
+          <div>Choose actions on the left to add per-finding instructions for the host agent.</div>
         </div>
       </div>
     );
@@ -49,7 +49,7 @@ export default function CommentsPanel({
               <div className="cmt__title">{f.finding}</div>
               <textarea
                 className="cmt__textarea"
-                placeholder="Add a comment for Claude (optional)…"
+                placeholder="Add a comment for the host agent (optional)…"
                 value={comments[f.id] || ''}
                 onChange={e => onCommentChange(f.id, e.target.value)}
               />

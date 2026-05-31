@@ -3,7 +3,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CLAUDE_BIN="${ACR_CLAUDE_BIN:-claude}"
+source "${SCRIPT_DIR}/acr-runtime.sh"
 
 RUN_ID=""
 RUN_DIR=""
@@ -37,6 +37,10 @@ AGENT_FILE="${PLUGIN_ROOT}/agents/${AGENT}.md"
 DIFF_FILE="${RUN_DIR}/diff.txt"
 
 STARTED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
+ROLE="balanced"
+if [ "$AGENT" = "test-coverage-analyzer" ]; then
+  ROLE="fast"
+fi
 
 {
   printf 'You are running as a non-interactive code-review subprocess.\n'
@@ -51,15 +55,21 @@ STARTED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.
   printf '\n</diff>\n'
 } > "$PROMPT_FILE"
 
+acr_build_subprocess_command "$ROLE" "$RAW_FILE"
+
 set +e
-(cd "$REPO" && ACR_REVIEW_SUBPROCESS=1 "$CLAUDE_BIN" --disable-slash-commands --tools "" --print --output-format json < "$PROMPT_FILE" > "$RAW_FILE" 2> "${RAW_FILE}.stderr")
+(cd "$REPO" && ACR_REVIEW_SUBPROCESS=1 "${ACR_SUBPROCESS_CMD[@]}" < "$PROMPT_FILE" > "$ACR_SUBPROCESS_STDOUT" 2> "${RAW_FILE}.stderr")
 RC=$?
 set -e
+
+if [ "$ACR_SUBPROCESS_PROVIDER" = "codex" ] && [ ! -s "$RAW_FILE" ] && [ -s "$ACR_SUBPROCESS_STDOUT" ]; then
+  cp "$ACR_SUBPROCESS_STDOUT" "$RAW_FILE"
+fi
 
 COMPLETED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
 
 if [ "$RC" -ne 0 ]; then
-  ERR="claude exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500)"
+  ERR="${ACR_SUBPROCESS_PROVIDER} exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500)"
   python3 "${SCRIPT_DIR}/claude_json.py" reviewer-failure \
     --out-file "$OUT_FILE" --run-id "$RUN_ID" --agent "$AGENT" \
     --started-at "$STARTED_AT" --completed-at "$COMPLETED_AT" --error "$ERR"

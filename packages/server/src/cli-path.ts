@@ -7,6 +7,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 // native-package lookup failing in installs that omitted optional deps.
 
 let _resolved: string | null | undefined = undefined;
+let _resolvedCodex: string | null | undefined = undefined;
 
 function executable(path: string): string | null {
   try {
@@ -17,7 +18,7 @@ function executable(path: string): string | null {
   }
 }
 
-function resolveFromPath(command: string): string | null {
+export function resolveFromPath(command: string): string | null {
   if (!command) return null;
   if (isAbsolute(command) || command.includes('/')) return executable(command);
 
@@ -78,4 +79,15 @@ export async function resolveCLIPath(): Promise<string | null> {
 
   _resolved = resolveFromPath('claude');
   return _resolved;
+}
+
+export function resolveCodexCLIPath(): string | null {
+  if (_resolvedCodex !== undefined) return _resolvedCodex;
+  const explicit = process.env.ACR_CODEX_BIN;
+  if (explicit) {
+    _resolvedCodex = resolveFromPath(explicit);
+    return _resolvedCodex;
+  }
+  _resolvedCodex = resolveFromPath('codex');
+  return _resolvedCodex;
 }

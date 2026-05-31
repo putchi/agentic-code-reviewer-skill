@@ -2,13 +2,14 @@ import { useRef, useEffect, useState } from 'react';
 import { useChat } from '../../hooks/useChat';
 
 interface Props {
-  model: string;
+  providerLabel: string;
+  chatModelLabel: string;
   currentFile?: string;
   prefillTrigger?: { id: number; prompt: string } | null;
 }
 
-export default function ChatPanel({ model, currentFile, prefillTrigger }: Props) {
-  const { messages, streaming, send, abort } = useChat(model);
+export default function ChatPanel({ providerLabel, chatModelLabel, currentFile, prefillTrigger }: Props) {
+  const { messages, streaming, send, abort } = useChat();
   const [draft, setDraft] = useState('');
   const threadRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -31,15 +32,13 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
     send(msg, currentFile);
   }
 
-  const modelShort = model.split('-').slice(-2).join('-');
-
   return (
     <div className="chat">
       <div className="chat__thread" ref={threadRef}>
         {messages.length === 0 && (
           <div style={{ padding: '8px 4px 0', color: 'var(--fg-faint)', fontSize: 12.5 }}>
             <div style={{ color: 'var(--fg-default)', fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-              Ask Claude about this review
+              Ask AI about this review
             </div>
             <p style={{ margin: 0, lineHeight: 1.55 }}>
               Ask about a specific finding, the diff, or the verdict.
@@ -62,7 +61,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
                       <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
                   )}
-                  {role === 'user' ? 'You' : role === 'ai' ? 'Claude' : 'Chat error'}
+                  {role === 'user' ? 'You' : role === 'ai' ? providerLabel : 'Chat error'}
                 </div>
                 <div className={`chat__text${m.streaming ? ' chat__streaming' : ''}`}>
                   {m.text || (m.streaming ? '' : '(empty)')}
@@ -97,7 +96,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
           <textarea
             ref={taRef}
             rows={1}
-            placeholder={isBusy ? 'Waiting for Claude…' : 'Ask Claude about a finding, the diff, or your fix plan…'}
+            placeholder={isBusy ? 'Waiting for AI…' : 'Ask AI about a finding, the diff, or your fix plan…'}
             value={draft}
             disabled={isBusy}
             onChange={e => setDraft(e.target.value)}
@@ -113,7 +112,7 @@ export default function ChatPanel({ model, currentFile, prefillTrigger }: Props)
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
               </svg>
-              {modelShort}
+              {providerLabel} · {chatModelLabel}
             </span>
             <span style={{ flex: 1 }} />
             {streaming ? (

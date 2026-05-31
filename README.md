@@ -8,7 +8,7 @@ Five specialist reviewers — semantic, security, architecture, test-coverage, s
 
 The current runtime is process-based: `/agentic-code-reviewer` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
-On Claude Code there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a completed/UI-ready state, with a one-time escape hatch. On Codex you invoke the skill manually; the review subprocesses still require the `claude` CLI with `--print` support.
+On Claude Code there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a completed/UI-ready state, with a one-time escape hatch. On Codex you invoke the skill manually; review subprocesses run through `codex exec`.
 
 ## The review council
 
@@ -21,13 +21,21 @@ On Claude Code there is an extra layer: a Stop hook that blocks the session from
 | `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Sonnet |
 | `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus |
 
-The model hints live in `agents/*.md` for agent identity and future/native integrations. The process launcher currently calls the configured `claude` CLI (`ACR_CLAUDE_BIN` or `claude`) and does not pass explicit `--model` flags.
+The launcher resolves the active provider from `ACR_PLATFORM`, `--platform`, host session environment, and install path. Claude launches use `claude`; Codex launches use `codex exec`. Defaults are Sonnet / Haiku / Opus on Claude and `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` on Codex.
+
+Advanced overrides:
+
+- `ACR_REVIEW_PROVIDER=claude|codex`
+- `ACR_CLAUDE_BIN=/path/to/claude`
+- `ACR_CODEX_BIN=/path/to/codex`
+- `ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`
+- `ACR_CODEX_REASONING_BALANCED`, `ACR_CODEX_REASONING_FAST`, `ACR_CODEX_REASONING_JUDGE`
 
 ## How it works
 
 1. **Launch.** `/agentic-code-reviewer` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`.
 2. **Snapshot.** The orchestrator validates required tools, creates `.claude/review-runs/<run-id>/`, captures `git diff --text HEAD` with excludes for lockfiles, minified assets, images, archives, and build directories, then writes `diff.txt` and `context.json`. PR mode uses `gh pr view` and `gh pr diff`.
-3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess runs `claude --disable-slash-commands --tools "" --print --output-format json` against the same `diff.txt` and writes `agents/<reviewer>.json`.
+3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess uses the resolved provider command against the same `diff.txt` and writes `agents/<reviewer>.json`.
 4. **Synthesize.** `scripts/run-synthesizer.sh` runs after all reviewer files are present. It writes `synthesis.json`; if synthesis fails, `scripts/claude_json.py synthesis-fallback` aggregates raw reviewer findings into a fallback result.
 5. **Open UI.** The compiled `dist/review-server` binary opens the browser with `--run-dir <path>`. It reads `synthesis.json`, `context.json`, `diff.txt`, and raw reviewer files. A Node wrapper at `server/review-server.js` falls back to Bun source in development.
 6. **Decide and resume.** The UI writes `decisions.json` in the run directory and a compatibility `/tmp/claude-code-review-${run-id}.decision` file. `/review-resume <run-id>` reads `synthesis.json` and `decisions.json`, then prints exact implementation instructions for the agent.
@@ -36,7 +44,7 @@ The model hints live in `agents/*.md` for agent identity and future/native integ
 
 | Feature | Claude Code | Codex | Copilot CLI |
 |---|---|---|---|
-| Background process fan-out | ✅ | ✅, if `claude` CLI is installed | ⚠ manual/untested |
+| Background process fan-out | ✅ via `claude` | ✅ via `codex exec` | ⚠ manual/untested |
 | Skill invocation | `/agentic-code-reviewer` + Stop-hook prompt | skills load natively | manual copy/untested |
 | Session-exit auto-gate | ✅ | ❌ | ❌ |
 | Interactive review web UI | ✅ | ✅ | ⚠ untested |
@@ -102,7 +110,7 @@ cd agentic-code-reviewer-skill
 ./install.sh --platform codex
 ```
 
-Codex does **not** need `multi_agent = true` for this skill. The installed Codex skill launches the same local orchestrator, and the orchestrator handles reviewer parallelism with subprocesses. The machine still needs the `claude` CLI because reviewer and synthesizer subprocesses are Claude CLI runs.
+Codex does **not** need `multi_agent = true` for this skill. The installed Codex skill launches the same local orchestrator, and the orchestrator handles reviewer parallelism with Codex subprocesses. Required tools: `git`, `python3`, `bash`, and the `codex` CLI. PR review mode also requires `gh`.
 
 ### Copilot CLI
 
@@ -117,7 +125,7 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 ## Usage
 
 - **Claude Code**: run `/agentic-code-reviewer` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop-hook gate will also prompt the agent to run `/agentic-code-reviewer` when you try to end a session with unreviewed changes.
-- **Codex**: skills load natively — tell the agent `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer` and still shells out to `claude` for reviewer subprocesses.
+- **Codex**: skills load natively — tell the agent `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer` and shells out to `codex exec` for reviewer subprocesses.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
 Empty diffs exit cleanly by writing a no-findings `synthesis.json` and setting the run status to `no_changes`.
@@ -136,7 +144,7 @@ ui.pid                   # review-server process id when the UI starts
 ui.log                   # review-server output
 prompts/*.prompt.md      # exact reviewer/synthesizer prompts
 agents/*.json            # one normalized reviewer result per reviewer
-agents/*.raw.json        # raw Claude CLI output
+agents/*.raw.json        # raw provider output
 synthesis.json           # final verdict, deduped findings, drops, rationale
 decisions.json           # UI decisions, comments, and line annotations
 auto-resume.json         # auto-resume attempt result, when applicable
@@ -168,7 +176,7 @@ After synthesis, the skill launches a self-contained binary (`dist/review-server
 
 **Right panel (collapsible)** — two tabs:
 - *Comments* — per-finding comment fields for decided findings, saved line annotations, and a Global Notes field. Everything here is included in `decisions.json`.
-- *Ask AI* — chat with Claude about the diff. Configurable model (Sonnet / Opus / Haiku). Annotation toolstrip has a quick-link to pre-fill the chat with context about the selected line.
+- *Ask AI* — chat with the active host AI about the diff. Settings show the resolved provider and model. Annotation toolstrip has a quick-link to pre-fill the chat with context about the selected line.
 
 **Action bar** — bottom bar with:
 - *All / None* — bulk mark findings for implementation
@@ -177,9 +185,9 @@ After synthesis, the skill launches a self-contained binary (`dist/review-server
 - *Save decisions* — write `decisions.json` and a markdown review record to `docs/code-reviews/`
 - *Close* — save final decisions and close. If there are undecided CRITICAL findings, a guard modal asks for confirmation first.
 
-**Settings pane** (≡ menu) — chat model selection, auto-close delay, and version display. Settings persist in `~/.claude/agentic-code-reviewer/settings.json` by default; `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location.
+**Settings pane** (≡ menu) — active AI runtime display, auto-close delay, and version display. Settings persist in `~/.claude/agentic-code-reviewer/settings.json` by default; `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location.
 
-**First-run modal** — shown on first launch to configure chat model and auto-close preference.
+**First-run modal** — shown on first launch to confirm the detected AI runtime and auto-close preference.
 
 **Session status polling** — after launch, the command prints a compact status line every 20 seconds until the review UI is ready. Set `ACR_STATUS_POLL=0` to disable polling, or `ACR_STATUS_INTERVAL_SECONDS=30` to slow it down.
 
@@ -218,7 +226,7 @@ On Codex and Copilot CLI you are responsible for invoking the skill before endin
 
 ## Costs and timing
 
-The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practice, small and medium diffs usually complete in tens of seconds, while large diffs depend on Claude CLI latency and the configured model. Reviewer timeout defaults to 900 seconds (`ACR_REVIEW_TIMEOUT_SECONDS`); synthesis timeout defaults to 600 seconds (`ACR_SYNTHESIS_TIMEOUT_SECONDS`).
+The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practice, small and medium diffs usually complete in tens of seconds, while large diffs depend on provider CLI latency and the configured model. Reviewer timeout defaults to 900 seconds (`ACR_REVIEW_TIMEOUT_SECONDS`); synthesis timeout defaults to 600 seconds (`ACR_SYNTHESIS_TIMEOUT_SECONDS`).
 
 ## Screenshots
 
@@ -229,7 +237,7 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 ![Diff viewer with annotation toolstrip showing Select, Pinpoint, Markup, Comment, Redline, and Label modes](docs/screenshots/annotation.png)
 
 ### Ask AI chat panel
-![Ask AI tab in the right panel with a chat input ready to query Claude about the diff](docs/screenshots/chat-panel.png)
+![Ask AI tab in the right panel with a chat input ready to query the active AI provider about the diff](docs/screenshots/chat-panel.png)
 
 ## Project layout
 
@@ -262,8 +270,8 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 │   └── platform-tools.md              # Runtime notes for non-Claude hosts
 ├── scripts/
 │   ├── orchestrator.sh/.py            # launch wrapper + background orchestrator
-│   ├── run-reviewer.sh                # one Claude CLI subprocess per reviewer
-│   ├── run-synthesizer.sh             # Claude CLI synthesis subprocess
+│   ├── run-reviewer.sh                # one provider subprocess per reviewer
+│   ├── run-synthesizer.sh             # provider synthesis subprocess
 │   ├── review-resume.sh/.py           # reads decisions and prints follow-up instructions
 │   └── capture-screenshots.js         # Playwright screenshot capture for docs
 ├── skills/agentic-code-reviewer/SKILL.md

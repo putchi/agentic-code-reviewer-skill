@@ -3,12 +3,6 @@ import { createPortal } from 'react-dom';
 import type { Settings } from '../../lib/api';
 import { ToggleSwitch } from '../atoms';
 
-const MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', sub: 'Balanced — fast and capable', tag: 'default' },
-  { id: 'claude-opus-4-7', label: 'Opus 4.7', sub: 'Most capable, slower', tag: null },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', sub: 'Fastest, lightest', tag: null },
-];
-
 interface Props {
   open: boolean;
   settings: Settings;
@@ -56,27 +50,16 @@ export default function SettingsPane({ open, settings, onUpdate, onClose, onHelp
 
         <div className="settings-drawer__body">
           <section className="settings-drawer__section">
-            <div className="modal__section-label">Chat model</div>
+            <div className="modal__section-label">AI runtime</div>
             <div className="settings-drawer__radiogroup">
-              {MODELS.map(m => (
-                <div
-                  key={m.id}
-                  className="radiocard"
-                  data-checked={settings.chatModel === m.id ? '' : undefined}
-                  onClick={() => onUpdate({ chatModel: m.id })}
-                  role="radio"
-                  aria-checked={settings.chatModel === m.id}
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') onUpdate({ chatModel: m.id }); }}
-                >
-                  <div className="radiocard__radio" />
-                  <div className="radiocard__content">
-                    <div className="radiocard__title">{m.label}</div>
-                    <div className="radiocard__sub">{m.sub}</div>
-                  </div>
-                  {m.tag && <div className="radiocard__tag">{m.tag}</div>}
+              <div className="radiocard radiocard--readonly" data-checked aria-disabled="true">
+                <div className="radiocard__radio" />
+                <div className="radiocard__content">
+                  <div className="radiocard__title">{settings.providerLabel}</div>
+                  <div className="radiocard__sub">{settings.chatModelLabel} · {settings.modelRole}</div>
                 </div>
-              ))}
+                <div className="radiocard__tag">active</div>
+              </div>
             </div>
           </section>
 

@@ -48,7 +48,7 @@ export default function HelpModal({ onClose }: Props) {
               <h3>Done</h3>
               <p>Closes the review without choosing new implementation work.</p>
               <h3>Chat</h3>
-              <p>Ask Claude about the diff. Uses the current model (configurable in Settings). The system prompt includes the full diff and all findings.</p>
+              <p>Ask AI about the diff. The active host runtime and model are shown in Settings.</p>
             </>
           )}
           </div>

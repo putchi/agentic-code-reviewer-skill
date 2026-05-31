@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchSettings, patchSettings, type Settings } from '../lib/api';
 
-const DEFAULTS: Settings = { autoCloseMs: 0, chatModel: 'claude-sonnet-4-6', firstRunDone: false };
+const DEFAULTS: Settings = {
+  autoCloseMs: 0,
+  firstRunDone: false,
+  platform: '',
+  provider: 'claude',
+  providerLabel: 'Claude',
+  chatModel: 'sonnet',
+  chatModelLabel: 'Claude Sonnet',
+  modelRole: 'balanced',
+};
 
 export function useSettings() {
   const [settings, setSettings] = useState<Settings>(DEFAULTS);

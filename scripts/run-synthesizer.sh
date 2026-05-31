@@ -3,7 +3,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CLAUDE_BIN="${ACR_CLAUDE_BIN:-claude}"
+source "${SCRIPT_DIR}/acr-runtime.sh"
 
 RUN_ID=""
 RUN_DIR=""
@@ -60,13 +60,19 @@ AGENT_FILES=(
   printf '</findings>\n'
 } > "$PROMPT_FILE"
 
+acr_build_subprocess_command "judge" "$RAW_FILE"
+
 set +e
-(cd "$REPO" && ACR_REVIEW_SUBPROCESS=1 "$CLAUDE_BIN" --disable-slash-commands --tools "" --print --output-format json < "$PROMPT_FILE" > "$RAW_FILE" 2> "${RAW_FILE}.stderr")
+(cd "$REPO" && ACR_REVIEW_SUBPROCESS=1 "${ACR_SUBPROCESS_CMD[@]}" < "$PROMPT_FILE" > "$ACR_SUBPROCESS_STDOUT" 2> "${RAW_FILE}.stderr")
 RC=$?
 set -e
 
+if [ "$ACR_SUBPROCESS_PROVIDER" = "codex" ] && [ ! -s "$RAW_FILE" ] && [ -s "$ACR_SUBPROCESS_STDOUT" ]; then
+  cp "$ACR_SUBPROCESS_STDOUT" "$RAW_FILE"
+fi
+
 if [ "$RC" -ne 0 ]; then
-  echo "claude synthesizer exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500)" >&2
+  echo "${ACR_SUBPROCESS_PROVIDER} synthesizer exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500)" >&2
   exit "$RC"
 fi
 

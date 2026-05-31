@@ -1,5 +1,14 @@
 import type { ReviewData, DecisionPayload } from '@acr/shared';
-export interface Settings { autoCloseMs: number; chatModel: string; firstRunDone: boolean; }
+export interface Settings {
+  autoCloseMs: number;
+  firstRunDone: boolean;
+  platform: string;
+  provider: 'claude' | 'codex';
+  providerLabel: string;
+  chatModel: string;
+  chatModelLabel: string;
+  modelRole: 'balanced' | 'fast' | 'judge';
+}
 
 export async function fetchSettings(): Promise<Settings> { return (await fetch('/api/settings')).json(); }
 export async function patchSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -11,8 +20,8 @@ export async function postDecision(action: 'implement'|'save'|'done', payload: O
   const res = await fetch(`/api/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   return res.json();
 }
-export async function createChatSession(model: string): Promise<string> {
-  const res = await fetch('/api/chat/session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ model }) });
+export async function createChatSession(): Promise<string> {
+  const res = await fetch('/api/chat/session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
   return (await res.json()).sessionId;
 }
 export async function abortChat(sessionId: string) {

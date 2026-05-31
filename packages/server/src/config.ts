@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
+import { resolveRuntimePlatform } from './runtime';
 function arg(name: string): string | null {
   const args = process.argv.slice(2);
   const i = args.indexOf(name);
@@ -39,12 +40,7 @@ export const PLUGIN_ROOT = resolvePluginRoot();
 export const MARKETPLACE_URL = 'https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/.claude-plugin/marketplace.json';
 export const INSTALL_BASE = 'curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash';
 export function detectPlatform(): string {
-  const explicit = arg('--platform');
-  if (explicit) return explicit;
-  if (PLUGIN_ROOT.includes('/.claude/plugins/')) return 'claude';
-  if (PLUGIN_ROOT.includes('/.claude/')) return 'claude';
-  if (PLUGIN_ROOT.includes('/.codex/skills/')) return 'codex';
-  return '';
+  return resolveRuntimePlatform({ explicitPlatform: arg('--platform'), pluginRoot: PLUGIN_ROOT });
 }
 export function buildInstallCommand(): string {
   const p = detectPlatform();
