@@ -3,14 +3,14 @@
   "displayName": "Agentic Code Reviewer",
   "description": "Opens Agentic Code Reviewer sessions inside VS Code tabs instead of an external browser",
   "version": "0.1.0",
-  "publisher": "agentic-code-reviewer",
+  "publisher": "alexrabinovich",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/putchi/agentic-code-reviewer-skill.git",
     "directory": "apps/vscode-extension"
   },
-  "categories": ["AI", "Other"],
+  "categories": ["Machine Learning", "Other"],
   "keywords": ["agentic-code-reviewer", "code review", "claude", "codex", "ai", "webview"],
   "engines": {
     "vscode": "^1.85.0"
@@ -97,6 +97,7 @@
     "test": "bun test",
     "lint": "tsc --noEmit",
     "vsce-package": "vsce package --no-dependencies",
+    "vsce-publish": "vsce publish --no-dependencies",
     "package": "bun run build && bun run vsce-package",
     "clean": "rm -rf ./dist"
   },

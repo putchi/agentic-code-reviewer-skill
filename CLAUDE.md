@@ -142,12 +142,13 @@ A new review-server binary is only needed when `packages/server/` or `packages/c
 
 #### Version bump checklist
 
-Every version bump must update **both** of these files — they must always match:
+Every version bump must update **all three** of these files — they must always match:
 
 1. `.claude-plugin/plugin.json` — the `"version"` field
 2. `.claude-plugin/marketplace.json` — the `"version"` field inside `plugins[0]`
+3. `apps/vscode-extension/package.json` — the `"version"` field
 
-Forgetting `marketplace.json` means the update-check toast will never show (it compares installed version against `marketplace.json`), and Claude Code will keep creating a stale versioned cache directory named after the old version.
+Forgetting `marketplace.json` means the update-check toast will never show (it compares installed version against `marketplace.json`), and Claude Code will keep creating a stale versioned cache directory named after the old version. Forgetting `apps/vscode-extension/package.json` means `vsce publish` will fail in CI because that version is already live on the VS Code Marketplace.
 
 #### plugin.json schema rules
 
@@ -162,9 +163,9 @@ Valid manifest fields: `name`, `description`, `version`, `author`, `repository`,
 #### Release steps
 
 ```bash
-# 1. Bump version in both manifest files
+# 1. Bump version in all three version files
 # 2. Commit
-git add .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git add .claude-plugin/plugin.json .claude-plugin/marketplace.json apps/vscode-extension/package.json
 git commit -m "Bump version to X.Y.Z"
 
 # 3. Push commits
