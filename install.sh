@@ -76,7 +76,7 @@ Usage:
 
 Platforms:
   claude  Install as a Claude Code plugin with hooks enabled
-  codex   Install to ~/.codex/skills/agentic-code-reviewer
+  codex   Install to ~/.codex/skills/agentic-code-reviewer and register a Stop hook
   both    Install the Claude Code plugin and the Codex skill
 
 Flags:
@@ -212,6 +212,27 @@ codex_is_installed() {
   [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1
 }
 
+register_codex_stop_hook() {
+  local hooks_file="$HOME/.codex/hooks.json"
+  local config_file="$HOME/.codex/config.toml"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: python3 is required to configure Codex hooks." >&2
+    exit 1
+  fi
+
+  mkdir -p "$HOME/.codex"
+  python3 "$ROOT_DIR/scripts/codex-install-config.py" \
+    --hooks-file "$hooks_file" \
+    --config-file "$config_file" >/dev/null
+
+  echo "Registered Codex Stop hook:"
+  echo "  $hooks_file"
+  echo "Enabled Codex hooks feature:"
+  echo "  $config_file"
+  echo "If Codex asks for hook trust, review/approve it with /hooks."
+}
+
 install_codex_skill() {
   local on_decline="${1:-cancel}"
   local target_dir="$HOME/.codex/skills/agentic-code-reviewer"
@@ -269,6 +290,7 @@ install_codex_skill() {
   copy_repo_tree "$target_dir"
   chmod +x "$target_dir/scripts/"*.sh "$target_dir/scripts/"*.py 2>/dev/null || true
   download_server_binary "$target_dir"
+  register_codex_stop_hook
 
   echo "Installed Agentic Code Reviewer for codex:"
   echo "  $target_dir"

@@ -120,23 +120,45 @@ run_hook_case() {
   local name="$1"
   local payload_json="$2"
   local expected="$3"
+  local event_style="${4:-claude}"
   local repo="$TMP_ROOT/repo-$name"
   local out="$TMP_ROOT/$name.out"
   local err="$TMP_ROOT/$name.err"
 
   make_repo "$repo"
+  local process_cwd="$repo"
+  local hook_event
+  if [ "$event_style" = "codex" ]; then
+    process_cwd="$TMP_ROOT"
+    hook_event="$(python3 - "$repo" "$name" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "hook_event_name": "Stop",
+    "session_id": f"gate-smoke-{sys.argv[2]}",
+    "cwd": sys.argv[1],
+}))
+PY
+)"
+  else
+    hook_event="{\"session_id\":\"gate-smoke-$name\"}"
+  fi
 
   (
-    cd "$repo"
+    cd "$process_cwd"
     PATH="/opt/homebrew/bin:$FAKE_BIN:$PATH" \
     CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    ACR_PLATFORM=claude \
+    ACR_REVIEW_PROVIDER=claude \
+    ACR_CLAUDE_BIN="$FAKE_BIN/claude" \
     ACR_NO_OPEN=1 \
     ACR_GATE_MAX_SECONDS=90 \
     ACR_GATE_POLL_INTERVAL_SECONDS=0.25 \
     ACR_REVIEW_TIMEOUT_SECONDS=30 \
     ACR_SYNTHESIS_TIMEOUT_SECONDS=30 \
     bash "$REPO_ROOT/hooks/code-review-gate.sh" >"$out" 2>"$err" <<JSON
-{"session_id":"gate-smoke-$name"}
+$hook_event
 JSON
   ) &
   local hook_pid=$!
@@ -177,6 +199,7 @@ PY
 }
 
 run_hook_case "implement" '{"runId":"ignored-by-server","findingDecisions":{"f1":{"action":"ask_claude_to_implement","comment":"smoke guidance"}},"globalComment":"","lineAnnotations":{}}' block
+run_hook_case "codex-implement" '{"runId":"ignored-by-server","findingDecisions":{"f1":{"action":"ask_claude_to_implement","comment":"codex smoke guidance"}},"globalComment":"","lineAnnotations":{}}' block codex
 run_hook_case "dismiss" '{"runId":"ignored-by-server","findingDecisions":{"f1":{"action":"ignore","comment":"not needed"}},"globalComment":"","lineAnnotations":{}}' allow
 
 echo "review-gate-hook-smoke-ok"

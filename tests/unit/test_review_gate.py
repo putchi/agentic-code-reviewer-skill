@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("review_gate", ROOT / "scripts" / "review-gate.py")
 review_gate = importlib.util.module_from_spec(SPEC)
@@ -60,6 +62,68 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(review_gate.newest_matching_run(repo, "match"), new)
             self.assertIsNone(review_gate.newest_matching_run(repo, "missing"))
+
+    def test_codex_hook_event_uses_event_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            event_cwd = root / "repo"
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            event_cwd.mkdir()
+            plugin_root.mkdir()
+            seen: list[Path] = []
+            original_git_root = review_gate.git_root
+            try:
+                def fake_git_root(cwd: Path) -> None:
+                    seen.append(cwd)
+                    return None
+
+                review_gate.git_root = fake_git_root
+                result = review_gate.run_gate(
+                    json.dumps({
+                        "hook_event_name": "Stop",
+                        "session_id": "codex-session-cwd-test",
+                        "cwd": str(event_cwd),
+                    }),
+                    plugin_root,
+                    fallback_cwd,
+                    0.1,
+                    0.01,
+                )
+            finally:
+                review_gate.git_root = original_git_root
+
+            self.assertEqual(result, 0)
+            self.assertEqual(seen, [event_cwd.resolve()])
+
+    def test_claude_hook_event_uses_process_cwd_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "repo"
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            plugin_root.mkdir()
+            seen: list[Path] = []
+            original_git_root = review_gate.git_root
+            try:
+                def fake_git_root(cwd: Path) -> None:
+                    seen.append(cwd)
+                    return None
+
+                review_gate.git_root = fake_git_root
+                result = review_gate.run_gate(
+                    json.dumps({"session_id": "claude-session-cwd-test"}),
+                    plugin_root,
+                    fallback_cwd,
+                    0.1,
+                    0.01,
+                )
+            finally:
+                review_gate.git_root = original_git_root
+
+            self.assertEqual(result, 0)
+            self.assertEqual(seen, [fallback_cwd.resolve()])
 
 
 if __name__ == "__main__":

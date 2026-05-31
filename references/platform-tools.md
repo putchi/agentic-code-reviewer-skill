@@ -15,8 +15,8 @@ The orchestrator creates `.claude/review-runs/<run-id>/`, starts `scripts/orches
 
 | Host | Invocation | Required local tools | Notes |
 |---|---|---|---|
-| Claude Code | `/code-review`, `/pr-review`, `/review-resume` | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | Stop hook and update-check hook are Claude Code only. |
-| Codex | Tell Codex `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill` | `bash`, `python3`, `git`, `codex`; `gh` for PR mode | Codex `multi_agent` is not required. The skill is normally installed at `~/.codex/skills/agentic-code-reviewer`. |
+| Claude Code | `/code-review`, `/pr-review`, `/review-resume` | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | Stop hook and update-check hook are registered by the Claude plugin manifest. |
+| Codex | Tell Codex `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill` | `bash`, `python3`, `git`, `codex`; `gh` for PR mode | Codex `multi_agent` is not required. The skill is normally installed at `~/.codex/skills/agentic-code-reviewer`; the Stop hook is merged into `~/.codex/hooks.json`. |
 | Copilot CLI | Manual copy/invocation, untested | `bash`, `python3`, `git`, provider CLI; `gh` for PR mode | There is no installer path today. |
 
 ## Provider and model mapping
@@ -47,12 +47,31 @@ The server's `PLUGIN_ROOT` resolution tries, in order:
 5. Codex skill path `~/.codex/skills/agentic-code-reviewer`
 6. A persistent fallback settings directory at `~/.claude/agentic-code-reviewer`
 
+## Stop hooks
+
+Claude Code loads the Stop hook from `hooks/hooks.json` through the plugin manifest. Codex does not read that manifest, so `install.sh --platform codex` updates user-level Codex files instead:
+
+```text
+~/.codex/hooks.json
+~/.codex/config.toml
+```
+
+The installer preserves existing hooks, appends this Stop command when missing, and ensures `[features] hooks = true`:
+
+```bash
+bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"
+```
+
+Codex may require reviewing or trusting the hook through `/hooks`. Manual skill invocation still works when the hook is installed or disabled.
+
+The gate parses hook JSON and uses `cwd` when present, which lets Codex run the hook from outside the repo while still reviewing the intended workspace. Hook-launched reviews set `ACR_DISABLE_AUTO_RESUME=1`; continuation is handled by the hook's deterministic `review-resume.sh --repo <repo> --run-id <run-id>` block.
+
 ## Auto-resume
 
 When the UI handles **Implement** or **Close**, it writes `decisions.json`, touches the compatibility `.done` sentinel, and calls auto-resume:
 
 - Claude Code: uses `CLAUDE_SESSION_ID` with `claude --resume <session-id> --print`.
 - Codex: uses `CODEX_THREAD_ID` with `codex exec resume <thread-id>`.
-- Otherwise: writes `auto-resume.json` with a `started: false` reason; the user can run `/review-resume <run-id>` manually.
+- Otherwise: writes `auto-resume.json` with a `started: false` reason and a `review-resume.sh --repo <repo> --run-id <run-id>` fallback command; the user can run `/review-resume <run-id>` manually.
 
 Set `ACR_DISABLE_AUTO_RESUME=1` to disable this behavior.

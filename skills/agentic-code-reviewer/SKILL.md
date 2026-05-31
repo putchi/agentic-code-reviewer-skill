@@ -40,11 +40,14 @@ starts `scripts/orchestrator.py` with `nohup`, then prints a compact status
 line every 20 seconds until the review UI is ready. Set
 `ACR_STATUS_POLL=0` to return immediately without polling.
 
-In Claude Code, the Stop hook can also launch this same background review
-automatically. `hooks/code-review-gate.sh` delegates to
-`scripts/review-gate.py`, which hashes the current reviewable diff, reuses the
-newest matching run when possible, otherwise launches the orchestrator, then
-waits for the Web UI final action.
+In Claude Code and in Codex installs with hooks enabled, the Stop hook can also
+launch this same background review automatically. Claude Code reads the hook
+from the plugin manifest; Codex reads the user-level entry installed in
+`~/.codex/hooks.json`. `hooks/code-review-gate.sh` delegates to
+`scripts/review-gate.py`, which uses hook JSON `cwd` when present, hashes the
+current reviewable diff, reuses the newest matching run when possible,
+otherwise launches the orchestrator, then waits for the Web UI final action.
+Codex may require reviewing or trusting the hook through `/hooks`.
 
 Claude Code named subagents and Codex `spawn_agent` are not used as the review
 execution primitive. The five reviewers run as independent provider subprocesses
@@ -94,12 +97,12 @@ partial evidence.
 
 ## Continuation
 
-When the Stop hook launched or is watching the run, the UI action is handled
-automatically. Implement / Done / confirmed Dismiss write final decisions; Save
-decisions is non-final and keeps the hook waiting. If any decision is
-actionable, the hook wakes the host agent with instructions to run the resume
-reader and act on the result. If all findings are ignored or there is no work, the hook
-allows the session to finish.
+When the Stop hook launched or is watching the run, server auto-resume is
+disabled and the hook owns continuation. Implement / Done / confirmed Dismiss
+write final decisions; Save decisions is non-final and keeps the hook waiting.
+If any decision is actionable, the hook wakes the host agent with instructions
+to run the resume reader and act on the result. If all findings are ignored or
+there is no work, the hook allows the session to finish.
 
 Manual fallback:
 

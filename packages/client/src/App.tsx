@@ -148,11 +148,18 @@ export default function App() {
     });
   }
 
+  function reportAutoResumeFailure(result: Awaited<ReturnType<typeof postDecision>>) {
+    const autoResume = result.autoResume;
+    if (!autoResume || autoResume.started || autoResume.reason === 'disabled') return;
+    const fallback = autoResume.fallbackCommand ? `\n\nManual fallback:\n${autoResume.fallbackCommand}` : '';
+    window.alert(`Agentic Code Reviewer could not resume the host agent automatically (${autoResume.reason || 'unknown reason'}).${fallback}`);
+  }
+
   async function handleCloseRequest() {
     if (unaddressedCriticals.length > 0) {
       setShowCloseGuard(true);
     } else {
-      await postDecision('done', buildBasePayload());
+      reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
       window.close();
     }
   }
@@ -164,7 +171,7 @@ export default function App() {
 
   async function handleCloseGuardAnyway() {
     setShowCloseGuard(false);
-    await postDecision('done', buildBasePayload());
+    reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
     window.close();
   }
 
@@ -211,7 +218,7 @@ export default function App() {
     if (implementationSelectedIds.length === 0) return;
     setFinalizing(true);
     try {
-      await postDecision('implement', buildBasePayload());
+      reportAutoResumeFailure(await postDecision('implement', buildBasePayload()));
       window.close();
     } finally {
       setFinalizing(false);
@@ -234,12 +241,12 @@ export default function App() {
     setComments(nextComments);
     setFinalizing(true);
     try {
-      await postDecision('implement', buildDecisionPayload({
+      reportAutoResumeFailure(await postDecision('implement', buildDecisionPayload({
         runId: data?.runId,
         findingActions: nextActions,
         comments: nextComments,
         lineAnnotations: allAnnotations,
-      }));
+      })));
       window.close();
     } finally {
       setFinalizing(false);

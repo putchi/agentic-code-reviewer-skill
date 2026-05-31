@@ -232,12 +232,12 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
         )
     system_message = "\n".join([
         "IMPORTANT: The Agentic Code Reviewer UI was closed after the user saved final decisions.",
-        f"{action_count} review decision(s) require follow-up.",
+        f"{action_count} review decision(s) require follow-up by the host agent.",
         "",
         "Run this command now and read its output:",
         resume_cmd,
         "",
-        "Then follow the printed instructions exactly.",
+        "Then, as the host agent, follow the printed instructions exactly.",
         "Implement only findings marked for implementation or accepted fix.",
         "Do not implement ignored/dismissed findings.",
         "For explanation or follow-up-task decisions, respond exactly as the resume instructions say.",
@@ -256,7 +256,7 @@ def emit_launch_failure(repo: Path | None, plugin_root: Path, message: str) -> N
         "decision": "block",
         "reason": "Agentic code review could not start automatically.",
         "systemMessage": "\n".join([
-            "IMPORTANT: Code was modified, but the Agentic Code Reviewer hook could not start the review UI automatically.",
+            "IMPORTANT: Code was modified, but the Agentic Code Reviewer Stop hook could not start the review UI automatically.",
             "",
             message,
             "",
@@ -274,12 +274,20 @@ def parse_hook_event(raw: str) -> dict[str, Any]:
         return {}
 
 
+def hook_cwd(event: dict[str, Any], fallback: Path) -> Path:
+    cwd = event.get("cwd")
+    if isinstance(cwd, str) and cwd.strip():
+        return Path(cwd).expanduser().resolve()
+    return fallback.resolve()
+
+
 def run_gate(raw_input: str, plugin_root: Path, cwd: Path, max_seconds: float, poll_interval: float) -> int:
     if os.environ.get("ACR_REVIEW_SUBPROCESS") == "1":
         return 0
 
     cleanup_stale_sentinels()
     event = parse_hook_event(raw_input)
+    cwd = hook_cwd(event, cwd)
     session_id = str(event.get("session_id") or "unknown")
     session_done = done_file(session_id)
     if session_done.exists():

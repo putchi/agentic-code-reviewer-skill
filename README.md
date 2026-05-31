@@ -12,7 +12,7 @@ Five specialist reviewers — semantic, security, architecture, test-coverage, s
 
 The current runtime is process-based: `/code-review` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
-On Claude Code there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a completed/UI-ready state, with a one-time escape hatch. On Codex you invoke the skill manually; review subprocesses run through `codex exec`.
+On Claude Code and Codex there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a final UI decision. Claude Code gets the hook from the plugin manifest; Codex gets it from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
 
 ## The review council
 
@@ -41,16 +41,16 @@ Advanced overrides:
 2. **Snapshot.** The orchestrator validates required tools, creates `.claude/review-runs/<run-id>/`, captures `git diff --text HEAD` with excludes for lockfiles, minified assets, images, archives, and build directories, then writes `diff.txt` and `context.json`. PR mode uses `gh pr view` and `gh pr diff`.
 3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess uses the resolved provider command against the same `diff.txt` and writes `agents/<reviewer>.json`.
 4. **Synthesize.** `scripts/run-synthesizer.sh` runs after all reviewer files are present. It writes `synthesis.json`; if synthesis fails, `scripts/claude_json.py synthesis-fallback` aggregates raw reviewer findings into a fallback result.
-5. **Open UI.** The compiled `dist/review-server` binary opens the browser with `--run-dir <path>`. It reads `synthesis.json`, `context.json`, `diff.txt`, and raw reviewer files. A Node wrapper at `server/review-server.js` falls back to Bun source in development.
-6. **Decide and resume.** The UI writes `decisions.json` in the run directory and a compatibility `/tmp/claude-code-review-${run-id}.decision` file. `/review-resume <run-id>` reads `synthesis.json` and `decisions.json`, then prints exact implementation instructions for the agent.
+5. **Open UI.** The compiled `dist/review-server` binary opens the review UI with `--run-dir <path>`. It reads `synthesis.json`, `context.json`, `diff.txt`, and raw reviewer files. A Node wrapper at `server/review-server.js` falls back to Bun source in development. If the VS Code extension is active, UI opens can be routed into a VS Code tab instead of an external browser.
+6. **Decide and resume.** The UI writes `decisions.json` in the run directory and a compatibility `/tmp/claude-code-review-${run-id}.decision` file. `/review-resume <run-id>` reads `synthesis.json` and `decisions.json`, then prints exact implementation instructions for the agent. Manual launches also attempt host auto-resume and record a fallback `review-resume.sh` command in `auto-resume.json`.
 
 ## Platform support matrix
 
 | Feature | Claude Code | Codex | Copilot CLI |
 |---|---|---|---|
 | Background process fan-out | ✅ via `claude` | ✅ via `codex exec` | ⚠ manual/untested |
-| Skill invocation | `/code-review` + Stop-hook prompt | skills load natively | manual copy/untested |
-| Session-exit auto-gate | ✅ | ❌ | ❌ |
+| Skill invocation | `/code-review` + Stop hook | skills load natively + Stop hook | manual copy/untested |
+| Session-exit auto-gate | ✅ plugin hook | ✅ `~/.codex/hooks.json` | ❌ |
 | Interactive review web UI | ✅ | ✅ | ⚠ untested |
 | Auto-resume after UI decisions | ✅ via `CLAUDE_SESSION_ID` | ✅ via `CODEX_THREAD_ID` when available | ❌ |
 
@@ -84,6 +84,8 @@ Verify with `/plugin` and confirm `agentic-code-reviewer` is listed.
 
 Required tools: `git`, `python3`, `bash`, and the `claude` CLI with `--print` support. PR review mode also requires `gh`. No runtime is required for the review UI when the release binary is available; the installer downloads or copies the self-contained `dist/review-server` binary.
 
+The Claude install is user-level: it enables the plugin in `~/.claude/settings.json` and installs the plugin under `~/.claude/plugins/`. Its Stop hook comes from the plugin's `hooks/hooks.json`, so no per-project hook file is needed. Run `/reload-plugins` in active Claude Code sessions after install or update.
+
 ### Codex (CLI + App)
 
 **Option A — one-line install (recommended):**
@@ -116,6 +118,8 @@ cd agentic-code-reviewer-skill
 
 Codex does **not** need `multi_agent = true` for this skill. The installed Codex skill launches the same local orchestrator, and the orchestrator handles reviewer parallelism with Codex subprocesses. Required tools: `git`, `python3`, `bash`, and the `codex` CLI. PR review mode also requires `gh`.
 
+The Codex installer also merges a Stop hook into `~/.codex/hooks.json` and ensures `~/.codex/config.toml` has `[features] hooks = true`. Existing hooks and unrelated config are preserved. Codex may ask you to review or trust the new hook; use `/hooks` in Codex to inspect and approve it.
+
 ### Copilot CLI
 
 The `install.sh` does not have a Copilot CLI path. Manual install is untested: clone the repo and symlink or copy the directories your Copilot CLI skills loader expects (`skills/agentic-code-reviewer/`, `agents/`, `references/`, `packages/server/`, `server/`, `scripts/`, `dist/`).
@@ -128,8 +132,8 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/code-review` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop-hook gate will also prompt the agent to run `/code-review` when you try to end a session with unreviewed changes.
-- **Codex**: skills load natively — tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer` and shells out to `codex exec` for reviewer subprocesses.
+- **Claude Code**: run `/code-review` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop hook can also launch and gate a review when you try to end a session with unreviewed changes.
+- **Codex**: skills load natively — tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and can be launched automatically by the installed Stop hook.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
 Empty diffs exit cleanly by writing a no-findings `synthesis.json` and setting the run status to `no_changes`.
@@ -151,14 +155,16 @@ agents/*.json            # one normalized reviewer result per reviewer
 agents/*.raw.json        # raw provider output
 synthesis.json           # final verdict, deduped findings, drops, rationale
 decisions.json           # UI decisions, comments, and line annotations
-auto-resume.json         # auto-resume attempt result, when applicable
+auto-resume.json         # auto-resume attempt result and manual fallback command, when applicable
 ```
 
 Reviewer JSON files have `status: "complete"` or `status: "failed"` and always include a `findings` array. Synthesis findings are grouped by the UI into CRITICAL, HIGH, and NOTE severities.
 
 ## Interactive review UI
 
-After synthesis, the skill launches a self-contained binary (`dist/review-server`) that opens the browser. No external runtime is required when the binary is present — the entire React app is embedded in the executable.
+After synthesis, the skill launches a self-contained binary (`dist/review-server`) that opens the review UI. No external runtime is required when the binary is present — the entire React app is embedded in the executable.
+
+When the optional VS Code extension is installed and active in the workspace, Agentic Code Reviewer can open sessions in VS Code tabs instead of an external browser. The extension injects `ACR_BROWSER` into new integrated terminals, maintains a local IPC registry, mirrors VS Code theme colors into the webview, and can push selected editor text into the review UI as editor annotations.
 
 ### Layout
 
@@ -184,7 +190,7 @@ After synthesis, the skill launches a self-contained binary (`dist/review-server
 
 **Action bar** — bottom bar with:
 - *All / None* — bulk mark findings for implementation
-- *Implement* — save decisions, close the tab, and try to resume the active Claude/Codex session
+- *Implement* — save decisions, close the tab, and try to resume the active Claude/Codex session; if auto-resume cannot start, the UI shows the manual `review-resume.sh` fallback
 - *Dismiss* — mark selected findings, or all findings when none are selected, as ignored with an optional reason
 - *Save decisions* — write `decisions.json` and a markdown review record to `docs/code-reviews/`
 - *Close* — save final decisions and close. If there are undecided CRITICAL findings, a guard modal asks for confirmation first.
@@ -206,25 +212,26 @@ After synthesis, the skill launches a self-contained binary (`dist/review-server
 | `Enter` | Jump to finding's diff |
 | `Escape` | Close modal or menu |
 
-## Claude Code exclusive: session-exit gate
+## Session-exit gate
 
-This part runs only on Claude Code; it has no Codex or Copilot CLI equivalent.
+This runs on Claude Code through the user-level enabled plugin and on Codex through `~/.codex/hooks.json`. It has no Copilot CLI equivalent.
 
 The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop event:
 
-- Runs `git diff HEAD` (then `git diff`) to see if any code was changed this session.
-- If there are changes and no completion signal is present, returns `{"decision":"block"}` with a system message instructing the model to run the skill. It also touches `/tmp/claude-code-review-${SESSION_ID}.blocked`.
-- Completion is satisfied by either `/tmp/claude-code-review-${SESSION_ID}.done` or the newest repo-local `.claude/review-runs/*/run.json` reaching `awaiting_decisions`, `decisions_ready`, `no_changes`, `synthesis_complete`, or `synthesis_failed`.
-- The blocked sentinel is the **one-time escape hatch**: if it already exists, the next Stop is allowed through. You are never held hostage — you can always end the session by trying twice.
-- Stale `.done` and `.blocked` sentinels older than 1 day are auto-cleaned on every invocation.
-- Backward-compat fallback: the hook still honors a transcript grep for `AGENTIC-REVIEW-COMPLETE`.
+- Uses the hook payload `cwd` when present, so Codex can invoke the hook from outside the repo and still review the correct workspace.
+- Runs `git diff HEAD` (then `git diff`) with the same exclusions as the orchestrator.
+- Reuses the newest matching `.claude/review-runs/<run-id>` when the diff hash matches; otherwise launches `scripts/orchestrator.sh` with server auto-resume disabled.
+- Waits for the web UI to receive a final action. **Save decisions** is non-final and keeps the hook waiting.
+- If final decisions include `ask_claude_to_implement`, `accept_fix`, `ask_claude_to_explain`, or `create_follow_up_task`, returns `{"decision":"block"}` with a deterministic `review-resume.sh --repo <repo> --run-id <run-id>` command for the host agent.
+- If all findings are ignored/dismissed or there is no reviewable work, touches the session `.done` sentinel and allows Stop.
+- Stale `.done` sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
 
-On Codex and Copilot CLI you are responsible for invoking the skill before ending the session.
+On Codex, review the installed hook with `/hooks` if Codex prompts for hook trust. Manual invocation remains available even when the Stop hook is installed.
 
 ## What it does NOT do
 
 - Does not auto-fix code unless you explicitly choose **Implement** or mark findings with `accept_fix` / `ask_claude_to_implement`.
-- Does not block commits or pushes — only gates the Stop event in the current Claude Code session.
+- Does not block commits or pushes — only gates the Stop event in the current Claude Code or Codex session.
 - Does not review binary, lockfile, or build-artifact diffs (filtered out before fan-out).
 - Does not report findings below 80% confidence.
 
@@ -250,6 +257,8 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 ├── .claude-plugin/plugin.json          # Claude Code plugin manifest
 ├── AGENTS.md                           # Codex project instructions; points Codex at CLAUDE.md
 ├── CLAUDE.md                           # Claude Code / repo maintenance guide
+├── apps/
+│   └── vscode-extension/               # Optional VS Code webview extension for in-editor review tabs
 ├── agents/                             # 5 reviewers + synthesizer (prompts are portable)
 │   ├── semantic-analyzer.md
 │   ├── security-scanner.md
@@ -262,7 +271,7 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
 │   └── screenshots/                    # UI screenshots for README
-├── hooks/                              # Claude Code exclusive (Stop-event gate)
+├── hooks/                              # Stop-event gate and update-check hook
 │   ├── hooks.json
 │   ├── code-review-gate.sh
 │   └── check-update.sh
@@ -277,6 +286,7 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 │   ├── run-reviewer.sh                # one provider subprocess per reviewer
 │   ├── run-synthesizer.sh             # provider synthesis subprocess
 │   ├── review-resume.sh/.py           # reads decisions and prints follow-up instructions
+│   ├── codex-install-config.py         # idempotent Codex hooks/config merge helper
 │   └── capture-screenshots.js         # Playwright screenshot capture for docs
 ├── skills/agentic-code-reviewer/SKILL.md
 ├── tests/                             # Bun test runner — unit + parity tests

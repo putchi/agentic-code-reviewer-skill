@@ -19,7 +19,18 @@ export async function resetSettings(): Promise<Settings> {
 }
 export async function fetchReview(): Promise<ReviewData> { return (await fetch('/api/review')).json(); }
 export async function fetchVersionCheck() { return (await fetch('/api/version-check')).json(); }
-export async function postDecision(action: 'implement'|'save'|'done', payload: Omit<DecisionPayload,'action'>) {
+export interface DecisionPostResult {
+  ok?: boolean;
+  path?: string;
+  autoResume?: {
+    started: boolean;
+    reason?: string;
+    host?: 'claude' | 'codex';
+    pid?: number;
+    fallbackCommand?: string;
+  };
+}
+export async function postDecision(action: 'implement'|'save'|'done', payload: Omit<DecisionPayload,'action'>): Promise<DecisionPostResult> {
   const res = await fetch(`/api/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   return res.json();
 }

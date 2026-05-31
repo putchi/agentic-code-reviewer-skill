@@ -2,13 +2,14 @@ import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from 'no
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { PLUGIN_ROOT, runDir, runJsonFile, sessionId } from './config';
-import { resolveCLIPath } from './cli-path';
+import { resolveCLIPath, resolveCodexCLIPath } from './cli-path';
 
 interface AutoResumeResult {
   started: boolean;
   reason?: string;
   host?: 'claude' | 'codex';
   pid?: number;
+  fallbackCommand?: string;
 }
 
 function readRunMeta(): { repo: string; runId: string } {
@@ -41,6 +42,11 @@ function buildPrompt(repo: string, reviewRunId: string): string {
   ].join('\n');
 }
 
+function buildFallbackCommand(repo: string, reviewRunId: string): string {
+  const resumeScript = resolve(PLUGIN_ROOT, 'scripts', 'review-resume.sh');
+  return `bash "${resumeScript}" --repo "${repo}" --run-id "${reviewRunId}"`;
+}
+
 function writeAutoResumeState(result: AutoResumeResult) {
   if (!runDir) return;
   try {
@@ -53,18 +59,20 @@ function writeAutoResumeState(result: AutoResumeResult) {
 }
 
 export async function triggerAutoResume(): Promise<AutoResumeResult> {
+  const { repo, runId: reviewRunId } = readRunMeta();
+  const fallbackCommand = buildFallbackCommand(repo, reviewRunId);
+
   if (process.env.ACR_DISABLE_AUTO_RESUME === '1') {
-    const result = { started: false, reason: 'disabled' };
+    const result = { started: false, reason: 'disabled', fallbackCommand };
     writeAutoResumeState(result);
     return result;
   }
   if (!runDir) {
-    const result = { started: false, reason: 'no run directory' };
+    const result = { started: false, reason: 'no run directory', fallbackCommand };
     writeAutoResumeState(result);
     return result;
   }
 
-  const { repo, runId: reviewRunId } = readRunMeta();
   const prompt = buildPrompt(repo, reviewRunId);
   const logPath = resolve(runDir, 'auto-resume.log');
   let host: 'claude' | 'codex' | null = null;
@@ -75,7 +83,7 @@ export async function triggerAutoResume(): Promise<AutoResumeResult> {
     host = 'claude';
     const resolved = await resolveCLIPath();
     if (!resolved) {
-      const result = { started: false, host, reason: 'claude executable not found' };
+      const result = { started: false, host, reason: 'claude executable not found', fallbackCommand };
       writeAutoResumeState(result);
       return result;
     }
@@ -83,12 +91,18 @@ export async function triggerAutoResume(): Promise<AutoResumeResult> {
     args = ['--resume', process.env.CLAUDE_SESSION_ID, '--print', '--output-format', 'text', prompt];
   } else if (process.env.CODEX_THREAD_ID) {
     host = 'codex';
-    command = process.env.ACR_CODEX_BIN || 'codex';
+    const resolved = resolveCodexCLIPath();
+    if (!resolved) {
+      const result = { started: false, host, reason: 'codex executable not found', fallbackCommand };
+      writeAutoResumeState(result);
+      return result;
+    }
+    command = resolved;
     args = ['exec', 'resume', process.env.CODEX_THREAD_ID, prompt];
   }
 
   if (!host || !command) {
-    const result = { started: false, reason: 'no Claude or Codex session id in environment' };
+    const result = { started: false, reason: 'no Claude or Codex session id in environment', fallbackCommand };
     writeAutoResumeState(result);
     return result;
   }
@@ -107,11 +121,11 @@ export async function triggerAutoResume(): Promise<AutoResumeResult> {
       stdio: ['ignore', logFd, logFd],
     });
     child.unref();
-    const result = { started: true, host, pid: child.pid };
+    const result = { started: true, host, pid: child.pid, fallbackCommand };
     writeAutoResumeState(result);
     return result;
   } catch (error: any) {
-    const result = { started: false, host, reason: error?.message || 'spawn failed' };
+    const result = { started: false, host, reason: error?.message || 'spawn failed', fallbackCommand };
     writeAutoResumeState(result);
     return result;
   } finally {
