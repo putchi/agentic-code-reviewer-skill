@@ -1,4 +1,4 @@
-import { portArg } from './config';
+import { portArg, runDir } from './config';
 import { serveClient } from './serve-client';
 // @ts-ignore — Bun resolves this at compile time; TS doesn't know the attribute
 import clientHtml from '../../client/dist/index.html' with { type: 'text' };
@@ -10,25 +10,11 @@ import { resetIdle } from './timeout';
 import { openBrowser } from './browser';
 import { loadSettings, resetSettings, saveSettings } from './settings';
 import { createEditorAnnotationHandler } from './editor-annotations';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLUGIN_ROOT } from './config';
-import { createServer } from 'node:net';
 
-async function pickPort(): Promise<number> {
-  if (portArg > 0) return portArg;
-  return await new Promise((resolvePort, reject) => {
-    const probe = createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      probe.close(() => resolvePort(port));
-    });
-  });
-}
-
-const selectedPort = await pickPort();
+const selectedPort = portArg > 0 ? portArg : 0;
 const editorAnnotationHandler = createEditorAnnotationHandler();
 
 const onIdle = () => { console.log('Idle timeout — closing server.'); server.stop(); process.exit(0); };
@@ -75,6 +61,13 @@ const server = Bun.serve({
 });
 
 const url = `http://${server.hostname}:${server.port}`;
+if (runDir) {
+  try {
+    writeFileSync(resolve(runDir, 'ui-port'), `${server.port}\n`, 'utf8');
+  } catch (error) {
+    console.error(`Could not write UI port file: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 console.log(`Review server listening at ${url}`);
 resetIdle(onIdle);
 openBrowser(url);

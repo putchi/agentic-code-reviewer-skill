@@ -11,9 +11,23 @@ function commandFor(role: string, env: Record<string, string>) {
   return result.stdout.split('\n').filter(Boolean);
 }
 
+function claudeEnv(overrides: Record<string, string> = {}) {
+  return {
+    ACR_REVIEW_PROVIDER: 'claude',
+    ACR_CLAUDE_BIN: 'claude',
+    ACR_MODEL_BALANCED: '',
+    ACR_MODEL_FAST: '',
+    ACR_MODEL_JUDGE: '',
+    ACR_CLAUDE_EFFORT_BALANCED: '',
+    ACR_CLAUDE_EFFORT_FAST: '',
+    ACR_CLAUDE_EFFORT_JUDGE: '',
+    ...overrides,
+  };
+}
+
 describe('review subprocess command construction', () => {
   test('constructs Claude reviewer command', () => {
-    const lines = commandFor('balanced', { ACR_REVIEW_PROVIDER: 'claude', ACR_CLAUDE_BIN: 'claude' });
+    const lines = commandFor('balanced', claudeEnv());
     expect(lines).toContain('provider=claude');
     expect(lines).toContain('model=sonnet');
     expect(lines).toContain('claude');
@@ -22,6 +36,29 @@ describe('review subprocess command construction', () => {
     expect(lines).toContain('json');
     expect(lines).toContain('--model');
     expect(lines).toContain('sonnet');
+    expect(lines).toContain('effort=medium');
+    expect(lines).toContain('--effort');
+    expect(lines).toContain('medium');
+  });
+
+  test('maps Claude effort by model role', () => {
+    const balanced = commandFor('balanced', claudeEnv());
+    const fast = commandFor('fast', claudeEnv());
+    const judge = commandFor('judge', claudeEnv());
+
+    expect(balanced).toContain('effort=medium');
+    expect(fast).toContain('effort=low');
+    expect(judge).toContain('effort=high');
+  });
+
+  test('supports Claude effort override by role', () => {
+    const lines = commandFor('balanced', claudeEnv({
+      ACR_CLAUDE_EFFORT_BALANCED: 'xhigh',
+    }));
+
+    expect(lines).toContain('effort=xhigh');
+    expect(lines).toContain('--effort');
+    expect(lines).toContain('xhigh');
   });
 
   test('constructs Codex reviewer command with model and reasoning', () => {

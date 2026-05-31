@@ -15,7 +15,7 @@ The orchestrator creates `.claude/review-runs/<run-id>/`, starts `scripts/orches
 
 | Host | Invocation | Required local tools | Notes |
 |---|---|---|---|
-| Claude Code | `/code-review`, `/pr-review`, `/review-resume` | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | Stop hook and update-check hook are registered by the Claude plugin manifest. |
+| Claude Code | `/code-review`, `/pr-review`, `/review-resume`, `/review-last` | `bash`, `python3`, `git`, `claude`; `gh` for PR mode | `/code-review` is the intended short launcher, though Claude Code may display plugin-qualified forms such as `/agentic-code-reviewer:code-review`. Stop hook and update-check hook are registered by the Claude plugin manifest. |
 | Codex | Tell Codex `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill` | `bash`, `python3`, `git`, `codex`; `gh` for PR mode | Codex `multi_agent` is not required. The skill is normally installed at `~/.codex/skills/agentic-code-reviewer`; the Stop hook is merged into `~/.codex/hooks.json`. |
 | Copilot CLI | Manual copy/invocation, untested | `bash`, `python3`, `git`, provider CLI; `gh` for PR mode | There is no installer path today. |
 

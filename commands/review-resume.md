@@ -9,4 +9,4 @@ Run the resume reader, then follow the printed decision instructions exactly:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/review-resume.sh" --repo "$(pwd)" --run-id "$ARGUMENTS"
 ```
 
-Implement only findings marked `ask_claude_to_implement` or `accept_fix`; skip ignored findings; answer explain requests in chat; summarize follow-up-task requests in the final response.
+Implement only findings marked `ask host agent to implement` or `accept fix`; skip ignored findings; answer explain requests in chat; summarize follow-up-task requests in the final response.

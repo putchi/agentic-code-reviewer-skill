@@ -86,6 +86,24 @@ acr_codex_reasoning_for_role() {
   esac
 }
 
+acr_claude_effort_for_role() {
+  local role="$1"
+  local override=""
+  case "$role" in
+    balanced) override="${ACR_CLAUDE_EFFORT_BALANCED:-}" ;;
+    fast) override="${ACR_CLAUDE_EFFORT_FAST:-}" ;;
+    judge) override="${ACR_CLAUDE_EFFORT_JUDGE:-}" ;;
+  esac
+  case "$override" in
+    low|medium|high|xhigh|max) printf '%s' "$override"; return 0 ;;
+  esac
+  case "$role" in
+    fast) printf 'low' ;;
+    judge) printf 'high' ;;
+    *) printf 'medium' ;;
+  esac
+}
+
 acr_validate_provider() {
   local provider="$1"
   case "$provider" in
@@ -114,6 +132,7 @@ acr_build_subprocess_command() {
   ACR_SUBPROCESS_PROVIDER="$(acr_detect_provider "${PLUGIN_ROOT:-}" "${ACR_PLATFORM:-}")"
   ACR_SUBPROCESS_MODEL="$(acr_model_for_role "$ACR_SUBPROCESS_PROVIDER" "$role")"
   ACR_SUBPROCESS_STDOUT="$output_file"
+  ACR_SUBPROCESS_EFFORT=""
   ACR_SUBPROCESS_CMD=()
 
   if [ "$ACR_SUBPROCESS_PROVIDER" = "codex" ]; then
@@ -130,6 +149,7 @@ acr_build_subprocess_command() {
     )
   else
     ACR_SUBPROCESS_REASONING=""
+    ACR_SUBPROCESS_EFFORT="$(acr_claude_effort_for_role "$role")"
     ACR_SUBPROCESS_CMD=(
       "${ACR_CLAUDE_BIN:-claude}"
       --disable-slash-commands
@@ -137,6 +157,7 @@ acr_build_subprocess_command() {
       --print
       --output-format json
       --model "$ACR_SUBPROCESS_MODEL"
+      --effort "$ACR_SUBPROCESS_EFFORT"
     )
   fi
 }
@@ -151,6 +172,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
       printf 'provider=%s\n' "$ACR_SUBPROCESS_PROVIDER"
       printf 'model=%s\n' "$ACR_SUBPROCESS_MODEL"
       if [ -n "${ACR_SUBPROCESS_REASONING:-}" ]; then printf 'reasoning=%s\n' "$ACR_SUBPROCESS_REASONING"; fi
+      if [ -n "${ACR_SUBPROCESS_EFFORT:-}" ]; then printf 'effort=%s\n' "$ACR_SUBPROCESS_EFFORT"; fi
       printf 'stdout=%s\n' "$ACR_SUBPROCESS_STDOUT"
       printf 'argv:'
       for arg in "${ACR_SUBPROCESS_CMD[@]}"; do printf '\n%s' "$arg"; done

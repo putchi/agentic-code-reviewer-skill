@@ -10,7 +10,7 @@ A portable skill that launches a background code-review run for your git diff. I
 
 Five specialist reviewers — semantic, security, architecture, test-coverage, senior-dev — each inspect the same filtered diff from their own angle and return structured JSON findings with confidence >=80. The Synthesizer reads the diff plus all reviewer result files, drops weak or duplicate findings, resolves contradictions, re-rates severity by actual blast radius, and writes a 2-sentence top-line verdict to `synthesis.json`.
 
-The current runtime is process-based: `/code-review` starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
+The current runtime is process-based: `/code-review` is the intended short command and starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code may also show the plugin-qualified `/agentic-code-reviewer:code-review` form, but `/code-review` remains the canonical user-facing launcher. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
 On Claude Code and Codex there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a final UI decision. Claude Code gets the hook from the plugin manifest; Codex gets it from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
 
@@ -37,7 +37,7 @@ Advanced overrides:
 
 ## How it works
 
-1. **Launch.** `/code-review` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`.
+1. **Launch.** `/code-review` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`. `/review-last` reopens the most recent saved review.
 2. **Snapshot.** The orchestrator validates required tools, creates `.claude/review-runs/<run-id>/`, captures `git diff --text HEAD` with excludes for lockfiles, minified assets, images, archives, and build directories, then writes `diff.txt` and `context.json`. PR mode uses `gh pr view` and `gh pr diff`.
 3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess uses the resolved provider command against the same `diff.txt` and writes `agents/<reviewer>.json`.
 4. **Synthesize.** `scripts/run-synthesizer.sh` runs after all reviewer files are present. It writes `synthesis.json`; if synthesis fails, `scripts/claude_json.py synthesis-fallback` aggregates raw reviewer findings into a fallback result.
@@ -49,7 +49,7 @@ Advanced overrides:
 | Feature | Claude Code | Codex | Copilot CLI |
 |---|---|---|---|
 | Background process fan-out | ✅ via `claude` | ✅ via `codex exec` | ⚠ manual/untested |
-| Skill invocation | `/code-review` + Stop hook | skills load natively + Stop hook | manual copy/untested |
+| Skill invocation | `/code-review`, `/review-last` + Stop hook | skills load natively + Stop hook | manual copy/untested |
 | Session-exit auto-gate | ✅ plugin hook | ✅ `~/.codex/hooks.json` | ❌ |
 | Interactive review web UI | ✅ | ✅ | ⚠ untested |
 | Auto-resume after UI decisions | ✅ via `CLAUDE_SESSION_ID` | ✅ via `CODEX_THREAD_ID` when available | ❌ |
@@ -132,7 +132,7 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/code-review` for the current branch diff, or `/pr-review <number|URL>` to review a specific GitHub PR. The Stop hook can also launch and gate a review when you try to end a session with unreviewed changes.
+- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook can also launch and gate a review when you try to end a session with unreviewed changes.
 - **Codex**: skills load natively — tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and can be launched automatically by the installed Stop hook.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
@@ -221,8 +221,9 @@ The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop eve
 - Uses the hook payload `cwd` when present, so Codex can invoke the hook from outside the repo and still review the correct workspace.
 - Runs `git diff HEAD` (then `git diff`) with the same exclusions as the orchestrator.
 - Reuses the newest matching `.claude/review-runs/<run-id>` when the diff hash matches; otherwise launches `scripts/orchestrator.sh` with server auto-resume disabled.
+- Writes heartbeat status lines to `stderr` every 10 seconds while waiting. Set `ACR_GATE_STATUS_INTERVAL_SECONDS=0` to disable them.
 - Waits for the web UI to receive a final action. **Save decisions** is non-final and keeps the hook waiting.
-- If final decisions include `ask_claude_to_implement`, `accept_fix`, `ask_claude_to_explain`, or `create_follow_up_task`, returns `{"decision":"block"}` with a deterministic `review-resume.sh --repo <repo> --run-id <run-id>` command for the host agent.
+- If final decisions include implementation, accepted-fix, explanation, or follow-up-task actions, returns `{"decision":"block"}` with a deterministic `review-resume.sh --repo <repo> --run-id <run-id>` command for the host agent.
 - If all findings are ignored/dismissed or there is no reviewable work, touches the session `.done` sentinel and allows Stop.
 - Stale `.done` sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
 
@@ -230,7 +231,7 @@ On Codex, review the installed hook with `/hooks` if Codex prompts for hook trus
 
 ## What it does NOT do
 
-- Does not auto-fix code unless you explicitly choose **Implement** or mark findings with `accept_fix` / `ask_claude_to_implement`.
+- Does not auto-fix code unless you explicitly choose **Implement** or mark findings with **Accept fix** / **Ask host agent to implement**.
 - Does not block commits or pushes — only gates the Stop event in the current Claude Code or Codex session.
 - Does not review binary, lockfile, or build-artifact diffs (filtered out before fan-out).
 - Does not report findings below 80% confidence.
@@ -268,6 +269,8 @@ The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practic
 │   └── synthesizer.md
 ├── commands/code-review.md             # Claude Code slash command
 ├── commands/pr-review.md               # /pr-review <number|URL> command
+├── commands/review-resume.md           # /review-resume <run-id> command
+├── commands/review-last.md             # /review-last command
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
 │   └── screenshots/                    # UI screenshots for README

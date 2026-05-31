@@ -208,6 +208,32 @@ download_server_binary() {
   fi
 }
 
+verify_review_last_surface() {
+  local target_dir="$1"
+  local problems=0
+
+  if [ ! -f "$target_dir/commands/agentic-code-reviewer-last.md" ]; then
+    echo "Error: legacy /agentic-code-reviewer-last alias missing from install tree: $target_dir/commands/agentic-code-reviewer-last.md" >&2
+    problems=1
+  fi
+  if [ ! -f "$target_dir/skills/agentic-code-reviewer-last/SKILL.md" ]; then
+    echo "Error: legacy agentic-code-reviewer:last skill alias missing from install tree: $target_dir/skills/agentic-code-reviewer-last/SKILL.md" >&2
+    problems=1
+  fi
+  if [ ! -f "$target_dir/commands/review-last.md" ]; then
+    echo "Error: /review-last command missing from install tree: $target_dir/commands/review-last.md" >&2
+    problems=1
+  fi
+  if [ ! -f "$target_dir/skills/review-last/SKILL.md" ]; then
+    echo "Error: review-last skill missing from install tree: $target_dir/skills/review-last/SKILL.md" >&2
+    problems=1
+  fi
+
+  if [ "$problems" = "1" ]; then
+    exit 1
+  fi
+}
+
 codex_is_installed() {
   [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1
 }
@@ -288,6 +314,7 @@ install_codex_skill() {
   fi
 
   copy_repo_tree "$target_dir"
+  verify_review_last_surface "$target_dir"
   chmod +x "$target_dir/scripts/"*.sh "$target_dir/scripts/"*.py 2>/dev/null || true
   download_server_binary "$target_dir"
   register_codex_stop_hook
@@ -447,6 +474,7 @@ install_claude_plugin() {
   fi
 
   copy_repo_tree "$marketplace_dir"
+  verify_review_last_surface "$marketplace_dir"
 
   # Remove stale versioned cache dirs so old manifests don't cause validation errors on reload.
   local cache_plugin_root="$plugin_root/cache/agentic-code-reviewer-skill/agentic-code-reviewer"
@@ -455,6 +483,7 @@ install_claude_plugin() {
   fi
 
   copy_repo_tree "$cache_dir"
+  verify_review_last_surface "$cache_dir"
 
   download_server_binary "$marketplace_dir"
   download_server_binary "$cache_dir"

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { createChatSession, abortChat } from '../lib/api';
+import { readChatEventStream } from '../lib/chatStream';
 
 export interface ChatMessage {
   id: number;
@@ -14,6 +15,12 @@ export function useChat() {
   const sessionRef = useRef<string | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const idCounter = useRef(0);
+
+  function clearMessageStreaming() {
+    setMessages(prev => prev.map(m =>
+      m.streaming ? { ...m, streaming: false } : m
+    ));
+  }
 
   async function send(prompt: string, currentFile?: string) {
     if (streaming) return;
@@ -43,49 +50,35 @@ export function useChat() {
       if (!res.body) throw new Error('No response body');
       const reader = res.body.getReader();
       readerRef.current = reader;
-      const dec = new TextDecoder();
-      let buf = '';
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') break;
-          try {
-            const evt = JSON.parse(data);
-            if (evt.type === 'text_delta') {
-              if (!assistantInserted) {
-                assistantInserted = true;
-                setMessages(prev => [
-                  ...prev,
-                  { id: assistantId, role: 'assistant', text: evt.delta, streaming: true },
-                ]);
-              } else {
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId ? { ...m, text: m.text + evt.delta } : m
-                ));
-              }
-            } else if (evt.type === 'error') {
-              if (!assistantInserted) {
-                assistantInserted = true;
-                setMessages(prev => [
-                  ...prev,
-                  { id: assistantId, role: 'assistant', text: `Error: ${evt.message}`, streaming: true },
-                ]);
-              } else {
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId ? { ...m, text: `Error: ${evt.message}` } : m
-                ));
-              }
-            }
-          } catch {}
+      await readChatEventStream(reader, evt => {
+        if (evt.type === 'text_delta' && typeof evt.delta === 'string') {
+          if (!assistantInserted) {
+            assistantInserted = true;
+            setMessages(prev => [
+              ...prev,
+              { id: assistantId, role: 'assistant', text: evt.delta, streaming: true },
+            ]);
+          } else {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? { ...m, text: m.text + evt.delta } : m
+            ));
+          }
+        } else if (evt.type === 'error') {
+          const message = typeof evt.message === 'string' ? evt.message : 'Unknown error';
+          if (!assistantInserted) {
+            assistantInserted = true;
+            setMessages(prev => [
+              ...prev,
+              { id: assistantId, role: 'assistant', text: `Error: ${message}`, streaming: true },
+            ]);
+          } else {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? { ...m, text: `Error: ${message}` } : m
+            ));
+          }
         }
-      }
+      });
     } catch (e: any) {
       if (!assistantInserted) {
         assistantInserted = true;
@@ -116,9 +109,15 @@ export function useChat() {
   }
 
   async function abort() {
-    if (readerRef.current) { try { readerRef.current.cancel(); } catch {} }
-    if (sessionRef.current) await abortChat(sessionRef.current);
-    setStreaming(false);
+    const reader = readerRef.current;
+    readerRef.current = null;
+    if (reader) { try { await reader.cancel(); } catch {} }
+    try {
+      if (sessionRef.current) await abortChat(sessionRef.current);
+    } finally {
+      clearMessageStreaming();
+      setStreaming(false);
+    }
   }
 
   return { messages, streaming, send, abort };

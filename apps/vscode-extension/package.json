@@ -2,7 +2,7 @@
   "name": "agentic-code-reviewer-webview",
   "displayName": "Agentic Code Reviewer",
   "description": "Opens Agentic Code Reviewer sessions inside VS Code tabs instead of an external browser",
-  "version": "0.1.1",
+  "version": "1.4.4",
   "publisher": "alexrabinovich",
   "license": "MIT",
   "repository": {

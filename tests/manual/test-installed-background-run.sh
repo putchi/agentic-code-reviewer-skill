@@ -214,7 +214,7 @@ PY
 
 RESUME_OUT="$TMP_ROOT/resume.out"
 (cd "$REPO" && bash "$PLUGIN_ROOT/scripts/review-resume.sh" --repo "$REPO" --run-id "$RUN_ID") > "$RESUME_OUT"
-grep -q "ask_claude_to_implement (1): f1" "$RESUME_OUT"
+grep -q "ask host agent to implement (1): f1" "$RESUME_OUT"
 grep -q "User comment: smoke test guidance" "$RESUME_OUT"
 
 echo "installed-background-smoke-ok $RUN_ID"

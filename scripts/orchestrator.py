@@ -4,9 +4,12 @@ import datetime as dt
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 AGENTS = [
@@ -70,6 +73,18 @@ def split_diff_files(diff: str) -> list[dict]:
 
 def diff_sha256(diff: str) -> str:
     return hashlib.sha256(diff.encode("utf-8")).hexdigest()
+
+
+def requested_ui_port(raw_port: str | None) -> int:
+    if raw_port and raw_port.strip() and raw_port.strip() != "0":
+        try:
+            port = int(raw_port)
+        except ValueError:
+            raise RuntimeError(f"ACR_UI_PORT is not a valid port number: {raw_port!r}")
+        if port < 1 or port > 65535:
+            raise RuntimeError(f"ACR_UI_PORT is out of range: {raw_port!r}")
+        return port
+    return 0
 
 
 class Orchestrator:
@@ -163,7 +178,7 @@ class Orchestrator:
                 "--agent", agent,
                 "--repo", str(self.repo),
                 "--plugin-root", str(self.plugin_root),
-            ], cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT)
+            ], cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
 
         deadline = time.time() + self.review_timeout
         while procs:
@@ -174,7 +189,13 @@ class Orchestrator:
                     del procs[agent]
             if procs and time.time() > deadline:
                 for agent, proc in procs.items():
-                    proc.kill()
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except OSError:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
                     self.failed_reviewer(agent, "reviewer timed out")
                 break
             time.sleep(0.5)
@@ -219,23 +240,68 @@ class Orchestrator:
             cmd = [str(binary)]
         else:
             cmd = ["node", str(self.plugin_root / "server" / "review-server.js")]
+        requested_port = requested_ui_port(os.environ.get("ACR_UI_PORT"))
         cmd.extend([
             "--run-dir", str(self.run_dir),
             "--session", self.run_id,
             "--platform", self.platform,
+            "--port", str(requested_port),
             "--save-dir", str(self.repo / "docs" / "code-reviews"),
         ])
-        log = open(self.run_dir / "ui.log", "ab")
         env = os.environ.copy()
         env["CLAUDE_PLUGIN_ROOT"] = str(self.plugin_root)
         if self.platform:
             env["ACR_PLATFORM"] = self.platform
         if self.provider:
             env["ACR_REVIEW_PROVIDER"] = self.provider
-        proc = subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, env=env)
+        port_file = self.run_dir / "ui-port"
+        try:
+            port_file.unlink()
+        except FileNotFoundError:
+            pass
+        with open(self.run_dir / "ui.log", "ab") as log:
+            proc = subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, env=env)
         (self.run_dir / "ui.pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
+        ui_deadline = time.time() + 10
+        last_probe_error = ""
+        actual_port = requested_port
+        while time.time() < ui_deadline:
+            if actual_port == 0 and port_file.exists():
+                try:
+                    actual_port = int(port_file.read_text(encoding="utf-8").strip())
+                except (OSError, ValueError):
+                    actual_port = 0
+            try:
+                if actual_port == 0:
+                    last_probe_error = f"waiting for UI port file: {port_file}"
+                else:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{actual_port}/api/review", timeout=1) as response:
+                        data = json.loads(response.read().decode("utf-8"))
+                    if data.get("runId") == self.run_id:
+                        break
+                    last_probe_error = f"port {actual_port} responded with runId={data.get('runId')!r}"
+            except urllib.error.HTTPError as exc:
+                last_probe_error = f"HTTP {exc.code} from readiness probe"
+            except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+                last_probe_error = str(exc)
+            if proc.poll() is not None:
+                err = f"UI server exited early (code {proc.returncode})"
+                if last_probe_error:
+                    err = f"{err}; readiness probe: {last_probe_error}"
+                (self.run_dir / "ui.error").write_text(err + "\n", encoding="utf-8")
+                raise RuntimeError(err)
+            time.sleep(0.5)
+        else:
+            if proc.poll() is None:
+                proc.kill()
+            port_label = str(actual_port) if actual_port else "an assigned port"
+            err = f"UI server did not serve run {self.run_id} on port {port_label} within 10 s"
+            if last_probe_error:
+                err = f"{err}; last readiness probe: {last_probe_error}"
+            (self.run_dir / "ui.error").write_text(err + "\n", encoding="utf-8")
+            raise RuntimeError(err)
         (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
-        self.update_run(final_status, ui_pid=proc.pid, resume_command=f"/review-resume {self.run_id}")
+        self.update_run(final_status, ui_pid=proc.pid, ui_port=actual_port, resume_command=f"/review-resume {self.run_id}")
 
     def run(self) -> int:
         self.run_dir.mkdir(parents=True, exist_ok=True)

@@ -12,6 +12,18 @@ VALID_ACTIONS = {
     "ask_claude_to_implement",
 }
 
+ACTION_LABELS = {
+    "ask_claude_to_implement": "ask host agent to implement",
+    "accept_fix": "accept fix",
+    "ask_claude_to_explain": "ask host agent to explain",
+    "create_follow_up_task": "create follow-up task",
+    "ignore": "ignore",
+}
+
+
+def action_label(action: str) -> str:
+    return ACTION_LABELS.get(action, action)
+
 
 def load_json(path: Path) -> dict:
     try:
@@ -90,7 +102,7 @@ def main() -> int:
     ]:
         ids = buckets[action]
         if ids:
-            print(f"{action} ({len(ids)}): {', '.join(ids)}")
+            print(f"{action_label(action)} ({len(ids)}): {', '.join(ids)}")
     if not buckets["ask_claude_to_implement"] and not buckets["accept_fix"]:
         print("No findings are selected for implementation.")
     if decisions.get("global_comment"):
@@ -98,16 +110,16 @@ def main() -> int:
     print()
 
     print("## Resume Instructions")
-    print("- Implement only findings marked `ask_claude_to_implement` or `accept_fix`.")
+    print("- Implement only findings marked `ask host agent to implement` or `accept fix`.")
     print("- Do not implement findings marked `ignore`.")
-    print("- For `ask_claude_to_explain`, answer the user's question in chat without editing code unless the user explicitly asks.")
-    print("- For `create_follow_up_task`, write a concise follow-up task description in the final response; do not silently edit code for it.")
+    print("- For `ask host agent to explain`, answer the user's question in chat without editing code unless the user explicitly asks.")
+    print("- For `create follow-up task`, write a concise follow-up task description in the final response; do not silently edit code for it.")
     print("- Apply `line_annotations` and `global_comment` as additional user guidance.")
     print()
 
     for finding_id, decision in decisions["findings"].items():
         finding = by_id.get(finding_id, {})
-        print(f"### {finding_id} — {decision['action']}")
+        print(f"### {finding_id} — {action_label(decision['action'])}")
         loc = finding.get("location") or f"{finding.get('file', '')}:{finding.get('line', '')}"
         if loc:
             print(f"Location: {loc}")

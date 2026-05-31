@@ -6,6 +6,10 @@
 *.swo
 *~
 
+# Python caches
+__pycache__/
+*.py[cod]
+
 # Claude Code local project state (NOT the plugin manifest dir `.claude-plugin/`)
 .claude/
 .remember/
