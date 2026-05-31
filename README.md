@@ -16,14 +16,14 @@ On Claude Code and Codex there is an extra layer: a Stop hook that blocks the se
 
 ## The review council
 
-| Agent | Focus | Model hint |
-|---|---|---|
-| `semantic-analyzer` | Logic correctness, control flow, null handling, off-by-one, race conditions | Sonnet |
-| `security-scanner` | OWASP Top 10, injection, secrets in code, auth/authorization gaps | Sonnet |
-| `architecture-reviewer` | Module boundaries, system-level SOLID, missing abstractions, YAGNI | Sonnet |
-| `test-coverage-analyzer` | Behavioral test gaps, missing edge cases, untested error paths | Haiku |
-| `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Sonnet |
-| `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus |
+| Agent | Focus | Claude model | Codex model |
+|---|---|---|---|
+| `semantic-analyzer` | Logic correctness, control flow, null handling, off-by-one, race conditions | Sonnet | `gpt-5.4`, reasoning `medium` |
+| `security-scanner` | OWASP Top 10, injection, secrets in code, auth/authorization gaps | Sonnet | `gpt-5.4`, reasoning `medium` |
+| `architecture-reviewer` | Module boundaries, system-level SOLID, missing abstractions, YAGNI | Sonnet | `gpt-5.4`, reasoning `medium` |
+| `test-coverage-analyzer` | Behavioral test gaps, missing edge cases, untested error paths | Haiku | `gpt-5.4-mini`, reasoning `low` |
+| `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Sonnet | `gpt-5.4`, reasoning `medium` |
+| `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus | `gpt-5.5`, reasoning `high` |
 
 The launcher resolves the active provider from `ACR_PLATFORM`, `--platform`, host session environment, and install path. Claude launches use `claude`; Codex launches use `codex exec`. Defaults are Sonnet / Haiku / Opus on Claude and `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` on Codex.
 
