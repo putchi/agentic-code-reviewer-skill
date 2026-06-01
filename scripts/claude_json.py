@@ -186,11 +186,16 @@ def normalize_reviewer(args: argparse.Namespace) -> int:
         "error": parsed.get("error", None),
         "findings": [normalize_finding(f, args.agent, i) for i, f in enumerate(findings) if isinstance(f, dict)],
     }
+    schema_error: str | None = None
     if value["agent"] not in AGENTS or value["status"] not in {"complete", "failed"}:
+        schema_error = f"reviewer result failed schema validation: agent={value['agent']!r}, status={value['status']!r}"
         value["status"] = "failed"
-        value["error"] = value.get("error") or "reviewer result failed schema validation"
+        value["error"] = value.get("error") or schema_error
         value["findings"] = []
     write_atomic(Path(args.out_file), value)
+    if schema_error:
+        Path(args.out_file + ".validation-error.txt").write_text(schema_error + "\n", encoding="utf-8")
+        return 2
     return 0 if value["status"] == "complete" else 1
 
 

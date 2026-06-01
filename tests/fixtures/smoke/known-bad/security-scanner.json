@@ -1,0 +1,21 @@
+{
+  "run_id": "test-run-known-bad",
+  "agent": "security-scanner",
+  "status": "complete",
+  "started_at": "2024-01-01T00:00:00Z",
+  "completed_at": "2024-01-01T00:00:10Z",
+  "error": null,
+  "findings": [
+    {
+      "id": "security-scanner-1",
+      "severity": "CRITICAL",
+      "file": "app/db.py",
+      "line": 5,
+      "location": "app/db.py:5",
+      "finding": "SQL injection via string interpolation",
+      "reasoning": "User-controlled name parameter interpolated directly into SQL query",
+      "evidence": "cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")",
+      "confidence": 95
+    }
+  ]
+}

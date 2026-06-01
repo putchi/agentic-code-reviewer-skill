@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -10,7 +11,16 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass
+class ReviewerState:
+    agent: str
+    status: str  # pending | running | success | failed | retrying
+    attempts: int = 0
+    error: str | None = None
 
 AGENTS = [
     "semantic-analyzer",
@@ -165,28 +175,57 @@ class Orchestrator:
             "findings": [],
         })
 
+    def _spawn_reviewer(self, agent: str, feedback_file: str | None = None) -> subprocess.Popen[bytes]:
+        script = self.plugin_root / "scripts" / "run-reviewer.sh"
+        log = open(self.run_dir / "agents" / f"{agent}.log", "ab")
+        cmd = [
+            "bash", str(script),
+            "--run-id", self.run_id,
+            "--run-dir", str(self.run_dir),
+            "--agent", agent,
+            "--repo", str(self.repo),
+            "--plugin-root", str(self.plugin_root),
+        ]
+        if feedback_file:
+            cmd.extend(["--feedback", feedback_file])
+        return subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+
     def run_reviewers(self) -> None:
         self.update_run("reviewers_running", agents=AGENTS)
-        procs: dict[str, subprocess.Popen[bytes]] = {}
-        script = self.plugin_root / "scripts" / "run-reviewer.sh"
-        for agent in AGENTS:
-            log = open(self.run_dir / "agents" / f"{agent}.log", "ab")
-            procs[agent] = subprocess.Popen([
-                "bash", str(script),
-                "--run-id", self.run_id,
-                "--run-dir", str(self.run_dir),
-                "--agent", agent,
-                "--repo", str(self.repo),
-                "--plugin-root", str(self.plugin_root),
-            ], cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+        states: dict[str, ReviewerState] = {a: ReviewerState(agent=a, status="running") for a in AGENTS}
+        procs: dict[str, subprocess.Popen[bytes]] = {a: self._spawn_reviewer(a) for a in AGENTS}
 
         deadline = time.time() + self.review_timeout
         while procs:
             for agent, proc in list(procs.items()):
                 if proc.poll() is not None:
-                    if not self.validate_reviewer(agent):
-                        self.failed_reviewer(agent, f"reviewer exited {proc.returncode} without valid result JSON")
-                    del procs[agent]
+                    state = states[agent]
+                    if self.validate_reviewer(agent):
+                        state.status = "success"
+                        del procs[agent]
+                    elif state.attempts < 2:
+                        # Check for a validation-error sidecar written by claude_json.py (exit 2)
+                        sidecar = self.run_dir / "agents" / f"{agent}.json.validation-error.txt"
+                        if sidecar.exists():
+                            try:
+                                error_text = sidecar.read_text(encoding="utf-8").strip()
+                            except Exception:
+                                error_text = "unknown validation error"
+                        else:
+                            error_text = f"reviewer exited {proc.returncode} without valid result JSON"
+                        state.attempts += 1
+                        feedback_name = f"{agent}.retry-{state.attempts}.feedback.txt"
+                        feedback_file = str(self.run_dir / "agents" / feedback_name)
+                        Path(feedback_file).write_text(error_text + "\n", encoding="utf-8")
+                        state.status = "retrying"
+                        state.error = error_text
+                        procs[agent] = self._spawn_reviewer(agent, feedback_file)
+                    else:
+                        error_text = state.error or f"reviewer failed after {state.attempts} attempts"
+                        state.status = "failed"
+                        state.error = error_text
+                        self.failed_reviewer(agent, error_text)
+                        del procs[agent]
             if procs and time.time() > deadline:
                 for agent, proc in procs.items():
                     try:
@@ -196,42 +235,63 @@ class Orchestrator:
                             proc.kill()
                         except OSError:
                             pass
+                    states[agent].status = "failed"
+                    states[agent].error = "reviewer timed out"
                     self.failed_reviewer(agent, "reviewer timed out")
                 break
             time.sleep(0.5)
-        self.update_run("reviewers_complete")
+        self.update_run("reviewers_complete", reviewer_states=[dataclasses.asdict(s) for s in states.values()])
+
+    def _run_synthesizer(self, feedback_file: str | None = None) -> None:
+        script = self.plugin_root / "scripts" / "run-synthesizer.sh"
+        cmd = [
+            "bash", str(script),
+            "--run-id", self.run_id,
+            "--run-dir", str(self.run_dir),
+            "--repo", str(self.repo),
+            "--plugin-root", str(self.plugin_root),
+        ]
+        if feedback_file:
+            cmd.extend(["--feedback", feedback_file])
+        proc = subprocess.run(cmd, cwd=str(self.repo), timeout=self.synthesis_timeout)
+        if proc.returncode != 0:
+            raise RuntimeError(f"synthesizer exited {proc.returncode}")
+        data = json.loads((self.run_dir / "synthesis.json").read_text(encoding="utf-8"))
+        if data.get("run_id") != self.run_id or not isinstance(data.get("deduped_findings"), list):
+            raise RuntimeError("synthesis failed schema validation")
 
     def synthesize(self) -> bool:
         self.update_run("synthesizing")
-        script = self.plugin_root / "scripts" / "run-synthesizer.sh"
+        first_exc: Exception | None = None
         try:
-            proc = subprocess.run([
-                "bash", str(script),
-                "--run-id", self.run_id,
-                "--run-dir", str(self.run_dir),
-                "--repo", str(self.repo),
-                "--plugin-root", str(self.plugin_root),
-            ], cwd=str(self.repo), timeout=self.synthesis_timeout)
-            if proc.returncode != 0:
-                raise RuntimeError(f"synthesizer exited {proc.returncode}")
-            data = json.loads((self.run_dir / "synthesis.json").read_text(encoding="utf-8"))
-            if data.get("run_id") != self.run_id or not isinstance(data.get("deduped_findings"), list):
-                raise RuntimeError("synthesis failed schema validation")
+            self._run_synthesizer()
             self.update_run("synthesis_complete")
             return True
         except Exception as exc:
-            agent_files = [f"agents/{agent}.json" for agent in AGENTS]
-            subprocess.run([
-                "python3", str(self.plugin_root / "scripts" / "claude_json.py"),
-                "synthesis-fallback",
-                "--out-file", str(self.run_dir / "synthesis.json"),
-                "--run-id", self.run_id,
-                "--verdict", "Review synthesis failed. Inspect the run log before making decisions from this run.",
-                "--error", str(exc),
-                "--agent-files", *agent_files,
-            ], check=False)
-            self.update_run("synthesis_failed", error=str(exc))
-            return False
+            first_exc = exc
+
+        # First attempt failed — retry once with feedback
+        feedback_file = str(self.run_dir / "synthesis.retry-1.feedback.txt")
+        Path(feedback_file).write_text(str(first_exc) + "\n", encoding="utf-8")
+        try:
+            self._run_synthesizer(feedback_file)
+            self.update_run("synthesis_complete")
+            return True
+        except Exception as exc2:
+            final_exc = exc2
+
+        agent_files = [f"agents/{agent}.json" for agent in AGENTS]
+        subprocess.run([
+            "python3", str(self.plugin_root / "scripts" / "claude_json.py"),
+            "synthesis-fallback",
+            "--out-file", str(self.run_dir / "synthesis.json"),
+            "--run-id", self.run_id,
+            "--verdict", "Review synthesis failed. Inspect the run log before making decisions from this run.",
+            "--error", str(final_exc),
+            "--agent-files", *agent_files,
+        ], check=False)
+        self.update_run("synthesis_failed", error=str(final_exc))
+        return False
 
     def launch_ui(self, final_status: str = "awaiting_decisions") -> None:
         self.update_run("launching_ui")
@@ -335,6 +395,25 @@ class Orchestrator:
             })
             (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
             self.update_run("no_changes")
+            return 0
+        try:
+            acr_min_diff_lines = int(os.environ.get("ACR_MIN_DIFF_LINES", "5"))
+        except ValueError:
+            acr_min_diff_lines = 5
+        if len(diff.strip().splitlines()) < acr_min_diff_lines:
+            n_lines = len(diff.strip().splitlines())
+            write_json(self.run_dir / "synthesis.json", {
+                "run_id": self.run_id,
+                "two_sentence_verdict": f"The diff is too small to warrant automated review ({n_lines} lines). There is nothing to decide for this run.",
+                "deduped_findings": [],
+                "dropped_findings_with_reason": [],
+                "contradictions_resolved": [],
+                "severity_rationale": {},
+                "recommended_next_actions": [],
+                "source_agent_result_files": [],
+            })
+            (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
+            self.update_run("diff_too_small")
             return 0
         self.run_reviewers()
         synthesis_ok = self.synthesize()

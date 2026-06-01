@@ -1,8 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import type { DecisionPayload, DecisionsFile, FindingDecision } from '@acr/shared';
-import { decisionFile, decisionsJsonFile, doneFile, runJsonFile } from '../config';
+import { resolve } from 'node:path';
+import type { DecisionPayload, DecisionsFile, FindingDecision, RunContext, SynthesisFinding } from '@acr/shared';
+import { decisionFile, decisionsJsonFile, doneFile, runJsonFile, contextFile, runDir, PLUGIN_ROOT } from '../config';
 import { readFindings, saveMarkdown } from '../findings';
 import { triggerAutoResume } from '../auto-resume';
+
+// f4: shell-safe quoting — consistent with how review-gate.py uses shlex.quote
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
 
 function normalizeDecision(payload: DecisionPayload, fallbackAction: 'implement' | 'save' | 'done'): DecisionsFile {
   const review = readFindings();
@@ -36,11 +42,67 @@ function updateRunStatus(status: string) {
   } catch {}
 }
 
+function writeResumeArtifact(decision: DecisionsFile): void {
+  if (!decisionsJsonFile || !runDir) return;
+  try {
+    const review = readFindings();
+    const contextJson = contextFile && existsSync(contextFile)
+      ? JSON.parse(readFileSync(contextFile, 'utf8')) as RunContext
+      : null;
+    const repo = contextJson?.repo || '';
+    const runId = decision.run_id;
+
+    const findingsByAction: Record<string, Array<SynthesisFinding & { comment?: string }>> = {
+      ask_claude_to_implement: [],
+      accept_fix: [],
+      ask_claude_to_explain: [],
+      create_follow_up_task: [],
+      ignore: [],
+    };
+
+    const findingMap = new Map<string, SynthesisFinding>(
+      (review.findings || []).map(f => [f.id, f as SynthesisFinding])
+    );
+
+    for (const [id, dec] of Object.entries(decision.findings)) {
+      const finding = findingMap.get(id);
+      const bucket = findingsByAction[dec.action];
+      if (bucket) {
+        // f6: explicit fallback with required fields instead of unsound cast
+        const fallback: SynthesisFinding = { id, severity: 'HIGH', file: '', line: 0, location: '', finding: '', source_agents: [] };
+        bucket.push({ ...(finding ?? fallback), comment: dec.comment });
+      }
+    }
+
+    // f4: quote each path component — mirrors review-gate.py's use of shlex.quote
+    const scriptPath = resolve(PLUGIN_ROOT, 'scripts', 'review-resume.sh');
+    const resumeCommand = `bash ${shellQuote(scriptPath)} --repo ${shellQuote(repo)} --run-id ${shellQuote(runId)}`;
+
+    const artifact = {
+      run_id: runId,
+      repo,
+      decided_at: decision.decided_at,
+      findings_by_action: findingsByAction,
+      global_comment: decision.global_comment,
+      line_annotations: decision.line_annotations,
+      resume_command: resumeCommand,
+    };
+
+    const artifactPath = resolve(runDir, 'resume-artifact.json');
+    writeFileSync(artifactPath, JSON.stringify(artifact, null, 2), 'utf8');
+  } catch (e) {
+    // f8: log warning so operators see when the fast-path artifact is unavailable
+    process.stderr.write(`[acr] Warning: failed to write resume-artifact.json: ${e}\n`);
+  }
+}
+
 function persistDecision(payload: DecisionPayload, action: 'implement' | 'save' | 'done'): DecisionsFile {
   const decision = normalizeDecision(payload, action);
   if (decisionsJsonFile) {
     writeFileSync(decisionsJsonFile, JSON.stringify(decision, null, 2), 'utf8');
     updateRunStatus(action === 'save' ? 'decisions_saved' : 'decisions_ready');
+    // f2: resume artifact is only valid for final decisions; skip for intermediate saves
+    if (action !== 'save') writeResumeArtifact(decision);
   }
   writeFileSync(decisionFile, JSON.stringify({ action, ...payload, decisions: decision }), 'utf8');
   if (action !== 'save') writeFileSync(doneFile, '', 'utf8');

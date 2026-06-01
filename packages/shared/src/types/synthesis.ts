@@ -86,6 +86,7 @@ export function validateSynthesisResult(value: unknown): value is SynthesisResul
   return !!v
     && typeof v.run_id === 'string'
     && typeof v.two_sentence_verdict === 'string'
+    && v.two_sentence_verdict.length > 0
     && Array.isArray(v.deduped_findings)
     && Array.isArray(v.dropped_findings_with_reason)
     && Array.isArray(v.contradictions_resolved)

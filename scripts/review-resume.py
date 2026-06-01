@@ -220,6 +220,33 @@ def validate_decisions(decisions: dict) -> None:
             raise SystemExit(f"Decision for {finding_id} has invalid action: {action}")
 
 
+def _validate_resume_artifact(artifact: dict | None) -> bool:
+    """Strictly validate resume-artifact.json before using the fast path.
+
+    Checks the required fields and that every entry in findings_by_action
+    is a list of dicts with at least a string 'id' — the minimum contract
+    that the printing loop below relies on.
+    """
+    if not isinstance(artifact, dict):
+        return False
+    if not isinstance(artifact.get("run_id"), str) or not artifact["run_id"]:
+        return False
+    if not isinstance(artifact.get("decided_at"), str) or not artifact["decided_at"]:
+        return False
+    fba = artifact.get("findings_by_action")
+    if not isinstance(fba, dict):
+        return False
+    for action, entries in fba.items():
+        if not isinstance(action, str):
+            return False
+        if not isinstance(entries, list):
+            return False
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+                return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
@@ -228,6 +255,84 @@ def main() -> int:
 
     repo = Path(args.repo).resolve()
     run_dir = find_run_dir(repo, args.run_id.strip())
+    # Fast path: use resume-artifact.json when available and valid
+    artifact_path = run_dir / "resume-artifact.json"
+    artifact = load_optional_json(artifact_path)
+    if _validate_resume_artifact(artifact):
+        findings_by_action = artifact["findings_by_action"]
+
+        # Build action counts from the artifact for the summary header
+        ordered_actions = [
+            "ask_claude_to_implement",
+            "accept_fix",
+            "ask_claude_to_explain",
+            "create_follow_up_task",
+            "ignore",
+        ]
+
+        # Write the post-resume marker — load decisions.json for marker data
+        decisions_for_marker = load_optional_json(run_dir / "decisions.json")
+        if decisions_for_marker:
+            write_post_resume_marker(repo, run_dir, decisions_for_marker)
+
+        print("## Review Decision")
+        print(f"Run: {artifact.get('run_id', run_dir.name)}")
+        print(f"Decided at: {artifact.get('decided_at', 'unknown')}")
+        has_impl = False
+        for action in ordered_actions:
+            entries = findings_by_action.get(action) or []
+            if not isinstance(entries, list):
+                entries = []
+            if entries:
+                ids = [str(e.get("id", "")) for e in entries if isinstance(e, dict)]
+                print(f"{action_label(action)} ({len(ids)}): {', '.join(ids)}")
+            if action in ("ask_claude_to_implement", "accept_fix") and entries:
+                has_impl = True
+        if not has_impl:
+            print("No findings are selected for implementation.")
+        if artifact.get("global_comment"):
+            print(f"Note: {artifact['global_comment']}")
+        print()
+
+        print("## Resume Instructions")
+        print("- Implement only findings marked `ask host agent to implement` or `accept fix`.")
+        print("- Do not implement findings marked `ignore`.")
+        print("- For `ask host agent to explain`, answer the user's question in chat without editing code unless the user explicitly asks.")
+        print("- For `create follow-up task`, write a concise follow-up task description in the final response; do not silently edit code for it.")
+        print("- Apply `line_annotations` and `global_comment` as additional user guidance.")
+        print()
+
+        for action in ordered_actions:
+            entries = findings_by_action.get(action) or []
+            if not isinstance(entries, list):
+                entries = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                finding_id = str(entry.get("id", ""))
+                print(f"### {finding_id} — {action_label(action)}")
+                loc = entry.get("location") or f"{entry.get('file', '')}:{entry.get('line', '')}"
+                if loc and loc != ":":
+                    print(f"Location: {loc}")
+                if entry.get("finding"):
+                    print(f"Finding: {entry['finding']}")
+                if entry.get("reasoning"):
+                    print(f"Reasoning: {entry['reasoning']}")
+                if entry.get("evidence"):
+                    print(f"Evidence: {entry['evidence']}")
+                if entry.get("comment"):
+                    print(f"User comment: {entry['comment']}")
+                print()
+
+        annotations = artifact.get("line_annotations") or {}
+        if annotations:
+            print("## Line Annotations")
+            for key, annotation in annotations.items():
+                if isinstance(annotation, dict):
+                    print(f"- {key}: [{annotation.get('type')}] {annotation.get('text')}")
+        return 0
+
+    # Fallback: load decisions.json + synthesis.json separately
     synthesis_path = run_dir / "synthesis.json"
     decisions_path = run_dir / "decisions.json"
     if not decisions_path.exists():

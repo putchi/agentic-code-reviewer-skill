@@ -576,6 +576,7 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
     resume_script = plugin_root / "scripts" / "review-resume.sh"
     run_id = run_dir.name
     resume_cmd = f"bash {shlex.quote(str(resume_script))} --repo {shlex.quote(str(repo))} --run-id {shlex.quote(run_id)}"
+    artifact_path = run_dir / "resume-artifact.json"
     action_count = 0
     if decisions and isinstance(decisions.get("findings"), dict):
         action_count = sum(
@@ -607,6 +608,7 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
         "",
         "Run this exact command now:",
         resume_cmd,
+        f"Alternatively, read the structured artifact at `{artifact_path}` for machine-parseable decisions (if it exists).",
         "",
         f"Implement only findings marked `{action_label('ask_claude_to_implement')}` or `{action_label('accept_fix')}`.",
         "Do not implement ignored/dismissed findings.",
@@ -615,6 +617,7 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
     print(json.dumps({
         "decision": "block",
         "reason": reason,
+        "resume_artifact_path": str(artifact_path),
         "systemMessage": system_message,
     }))
 

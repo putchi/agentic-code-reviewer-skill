@@ -1,0 +1,58 @@
+{
+  "run_id": "test-run-known-bad",
+  "two_sentence_verdict": "CRITICAL SQL injection found in app/db.py. Immediate fix required before merge.",
+  "deduped_findings": [
+    {
+      "id": "f1",
+      "severity": "CRITICAL",
+      "file": "app/db.py",
+      "line": 5,
+      "location": "app/db.py:5",
+      "finding": "SQL injection via string interpolation",
+      "reasoning": "User-controlled name parameter interpolated directly into SQL query",
+      "evidence": "cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")",
+      "source_agents": ["security-scanner"]
+    },
+    {
+      "id": "f2",
+      "severity": "HIGH",
+      "file": "app/db.py",
+      "line": 3,
+      "location": "app/db.py:3",
+      "finding": "No input validation on name parameter",
+      "reasoning": "Function accepts arbitrary string without validation",
+      "evidence": "def get_user_by_name(name):",
+      "source_agents": ["senior-dev-reviewer"]
+    },
+    {
+      "id": "f3",
+      "severity": "HIGH",
+      "file": "app/db.py",
+      "line": 1,
+      "location": "app/db.py",
+      "finding": "No test for get_user_by_name",
+      "reasoning": "New function has no corresponding test",
+      "evidence": "No test file found",
+      "source_agents": ["test-coverage-analyzer"]
+    }
+  ],
+  "dropped_findings_with_reason": [],
+  "contradictions_resolved": [],
+  "severity_rationale": {
+    "f1": "CRITICAL because SQL injection allows arbitrary data access",
+    "f2": "HIGH because missing validation enables injection attacks",
+    "f3": "HIGH because untested code increases regression risk"
+  },
+  "recommended_next_actions": [
+    "Fix SQL injection using parameterized queries",
+    "Add input validation",
+    "Write unit tests"
+  ],
+  "source_agent_result_files": [
+    "agents/semantic-analyzer.json",
+    "agents/security-scanner.json",
+    "agents/architecture-reviewer.json",
+    "agents/test-coverage-analyzer.json",
+    "agents/senior-dev-reviewer.json"
+  ]
+}

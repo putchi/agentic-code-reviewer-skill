@@ -1,0 +1,16 @@
+{
+  "run_id": "test-run-known-good",
+  "two_sentence_verdict": "No issues found in this refactor. The change is clean and safe to merge.",
+  "deduped_findings": [],
+  "dropped_findings_with_reason": [],
+  "contradictions_resolved": [],
+  "severity_rationale": {},
+  "recommended_next_actions": [],
+  "source_agent_result_files": [
+    "agents/semantic-analyzer.json",
+    "agents/security-scanner.json",
+    "agents/architecture-reviewer.json",
+    "agents/test-coverage-analyzer.json",
+    "agents/senior-dev-reviewer.json"
+  ]
+}

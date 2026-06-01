@@ -1,0 +1,21 @@
+{
+  "run_id": "test-run-known-bad",
+  "agent": "test-coverage-analyzer",
+  "status": "complete",
+  "started_at": "2024-01-01T00:00:00Z",
+  "completed_at": "2024-01-01T00:00:10Z",
+  "error": null,
+  "findings": [
+    {
+      "id": "test-coverage-analyzer-1",
+      "severity": "HIGH",
+      "file": "app/db.py",
+      "line": 1,
+      "location": "app/db.py",
+      "finding": "No test for get_user_by_name",
+      "reasoning": "New function has no corresponding test",
+      "evidence": "No test file found",
+      "confidence": 85
+    }
+  ]
+}

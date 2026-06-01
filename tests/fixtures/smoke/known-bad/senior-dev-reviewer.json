@@ -1,0 +1,21 @@
+{
+  "run_id": "test-run-known-bad",
+  "agent": "senior-dev-reviewer",
+  "status": "complete",
+  "started_at": "2024-01-01T00:00:00Z",
+  "completed_at": "2024-01-01T00:00:10Z",
+  "error": null,
+  "findings": [
+    {
+      "id": "senior-dev-reviewer-1",
+      "severity": "HIGH",
+      "file": "app/db.py",
+      "line": 3,
+      "location": "app/db.py:3",
+      "finding": "No input validation on name parameter",
+      "reasoning": "Function accepts arbitrary string without validation",
+      "evidence": "def get_user_by_name(name):",
+      "confidence": 90
+    }
+  ]
+}

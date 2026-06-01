@@ -1,0 +1,9 @@
+{
+  "run_id": "test-run-known-good",
+  "agent": "security-scanner",
+  "status": "complete",
+  "started_at": "2024-01-01T00:00:00Z",
+  "completed_at": "2024-01-01T00:00:10Z",
+  "error": null,
+  "findings": []
+}

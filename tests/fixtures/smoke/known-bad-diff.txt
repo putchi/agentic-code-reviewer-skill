@@ -1,0 +1,16 @@
+diff --git a/app/db.py b/app/db.py
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/app/db.py
+@@ -0,0 +1,10 @@
++import sqlite3
++
++def get_user_by_name(name):
++    conn = sqlite3.connect(':memory:')
++    cursor = conn.cursor()
++    cursor.execute(f"SELECT * FROM users WHERE name = '{name}'")
++    result = cursor.fetchone()
++    conn.close()
++    return result
++

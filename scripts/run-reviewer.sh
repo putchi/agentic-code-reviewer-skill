@@ -9,6 +9,7 @@ RUN_ID=""
 RUN_DIR=""
 AGENT=""
 REPO=""
+FEEDBACK_FILE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -17,6 +18,7 @@ while [ $# -gt 0 ]; do
     --agent) AGENT="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --plugin-root) PLUGIN_ROOT="$2"; shift 2 ;;
+    --feedback) FEEDBACK_FILE="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -43,6 +45,13 @@ if [ "$AGENT" = "test-coverage-analyzer" ]; then
 fi
 
 {
+  if [ -n "$FEEDBACK_FILE" ] && [ -f "$FEEDBACK_FILE" ]; then
+    printf '## PREVIOUS ATTEMPT FAILED\n'
+    printf 'Your previous response failed validation. Error:\n'
+    cat "$FEEDBACK_FILE"
+    printf 'Please correct your JSON output to match the schema below.\n\n'
+    printf -- '---\n\n'
+  fi
   printf 'You are running as a non-interactive code-review subprocess.\n'
   printf 'Return ONLY a JSON object matching this schema, with no markdown fences:\n\n'
   printf '{"run_id":"%s","agent":"%s","status":"complete","started_at":"%s","completed_at":"ISO-8601","error":null,"findings":[{"id":"%s-1","severity":"CRITICAL","file":"src/example.ts","line":42,"location":"src/example.ts:42","finding":"Short finding title","reasoning":"Why this is real","evidence":"Concrete code excerpt","confidence":92}]}\n\n' "$RUN_ID" "$AGENT" "$STARTED_AT" "$AGENT"

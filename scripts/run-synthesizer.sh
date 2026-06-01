@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/acr-runtime.sh"
 RUN_ID=""
 RUN_DIR=""
 REPO=""
+FEEDBACK_FILE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -15,6 +16,7 @@ while [ $# -gt 0 ]; do
     --run-dir) RUN_DIR="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --plugin-root) PLUGIN_ROOT="$2"; shift 2 ;;
+    --feedback) FEEDBACK_FILE="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -41,6 +43,13 @@ AGENT_FILES=(
 )
 
 {
+  if [ -n "$FEEDBACK_FILE" ] && [ -f "$FEEDBACK_FILE" ]; then
+    printf '## PREVIOUS ATTEMPT FAILED\n'
+    printf 'Your previous response failed validation. Error:\n'
+    cat "$FEEDBACK_FILE"
+    printf 'Please correct your JSON output to match the schema below.\n\n'
+    printf -- '---\n\n'
+  fi
   printf 'You are running as a non-interactive synthesis subprocess.\n'
   printf 'Return ONLY a JSON object matching this schema, with no markdown fences:\n\n'
   printf '{"run_id":"%s","two_sentence_verdict":"Sentence one. Sentence two.","deduped_findings":[{"id":"f1","severity":"HIGH","file":"src/example.ts","line":42,"location":"src/example.ts:42","finding":"Short finding title","reasoning":"Judge reasoning","evidence":"Concrete code excerpt","source_agents":["semantic-analyzer"]}],"dropped_findings_with_reason":[],"contradictions_resolved":[],"severity_rationale":{"f1":"HIGH because it causes incorrect behavior under plausible input"},"recommended_next_actions":["Fix f1 before shipping"],"source_agent_result_files":["agents/semantic-analyzer.json","agents/security-scanner.json","agents/architecture-reviewer.json","agents/test-coverage-analyzer.json","agents/senior-dev-reviewer.json"]}\n\n' "$RUN_ID"

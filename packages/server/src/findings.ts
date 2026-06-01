@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { REVIEW_AGENTS } from '@acr/shared';
+import { REVIEW_AGENTS, validateRawReviewerResult, validateSynthesisResult } from '@acr/shared';
 import type { DecisionsFile, FileEntry, LineAnnotation, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
 import { findingsFile, runDir, saveDir, sessionId } from './config';
 
@@ -89,6 +89,15 @@ function readReviewerResults(dir: string): ReviewerResult[] {
         findings: [],
       };
     }
+    if (!validateRawReviewerResult(result)) {
+      process.stderr.write(`[acr] Warning: reviewer result for agent "${agent}" failed schema validation — treating as failed\n`);
+      return {
+        agent,
+        status: 'failed' as const,
+        error: 'Reviewer result failed schema validation.',
+        findings: [],
+      };
+    }
     return normalizeReviewerResult(result);
   });
 }
@@ -100,6 +109,10 @@ export function readReviewFromRunDir(dir: string): ReviewData | null {
   const runPath = join(dir, 'run.json');
   const synthesis = parseJsonFile<SynthesisResult>(synthesisPath);
   if (!synthesis) return null;
+  if (!validateSynthesisResult(synthesis)) {
+    process.stderr.write(`[acr] Warning: synthesis.json in "${dir}" failed schema validation — falling through to legacy path\n`);
+    return null;
+  }
   const context = parseJsonFile<RunContext>(contextPath);
   return {
     verdict: synthesis.two_sentence_verdict || '',
