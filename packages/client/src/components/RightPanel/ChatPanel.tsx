@@ -14,6 +14,7 @@ export default function ChatPanel({ providerLabel, chatModelLabel, currentFile, 
   const threadRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = streaming;
+  const isThinking = streaming && !messages.some(m => m.streaming);
 
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -86,7 +87,7 @@ export default function ChatPanel({ providerLabel, chatModelLabel, currentFile, 
       )}
 
       <div className={`chat__composer${isBusy ? ' chat__composer--busy' : ''}`}>
-        {isBusy && (
+        {isThinking && (
           <div className="chat__thinking" role="status" aria-live="polite">
             <span className="chat__thinking-spinner" aria-hidden="true" />
             <span>Thinking… Ask again when done.</span>
