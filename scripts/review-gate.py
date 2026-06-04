@@ -82,11 +82,19 @@ def read_committed_project_config(repo: Path) -> dict[str, Any] | None:
             check=False,
             timeout=10,
         )
+        if result.returncode == 0:
+            parsed = parse_json_object(result.stdout)
+            if parsed is not None:
+                return parsed
+    except Exception:
+        pass
+
+    # Fall back to working-tree file so a new/gitignored .acr.json takes effect
+    # without requiring a commit first.
+    try:
+        return parse_json_object((repo / PROJECT_CONFIG_FILE).read_text(encoding="utf-8"))
     except Exception:
         return None
-    if result.returncode != 0:
-        return None
-    return parse_json_object(result.stdout)
 
 
 def project_config_disables_stop_hook(repo: Path) -> bool:
