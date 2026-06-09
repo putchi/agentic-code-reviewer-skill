@@ -584,7 +584,49 @@ html, body { overflow-x: auto; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.finding[data-selected="true"] .finding__title { color: var(--fg-strong); }
+.finding[data-selected="true"] .finding__title {
+  color: var(--fg-strong);
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.finding__detail {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.finding__detail-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+.finding__detail-evidence {
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+  background: var(--bg-input);
+  border: 1px solid var(--border-faint);
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.finding__diff-btn {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-input);
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.finding__diff-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
 .finding__decision {
   align-self: start;
   display: inline-flex;

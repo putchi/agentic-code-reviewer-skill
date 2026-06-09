@@ -7,10 +7,11 @@ interface Props {
   selectedId: string | null;
   findingActions: Record<string, FindingAction | ''>;
   onSelect: (f: Finding) => void;
+  onOpenFindingDiff: (f: Finding) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
 }
 
-export default function FindingsList({ findings, selectedId, findingActions, onSelect, onFindingAction }: Props) {
+export default function FindingsList({ findings, selectedId, findingActions, onSelect, onOpenFindingDiff, onFindingAction }: Props) {
   if (!findings.length) {
     return (
       <div style={{ padding: '32px 18px', textAlign: 'center', color: 'var(--fg-faint)', fontSize: 12 }}>
@@ -54,6 +55,22 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
                 </span>
               </div>
               <div className="finding__title">{f.finding}</div>
+              {selected && (
+                <div className="finding__detail">
+                  {f.reasoning && (
+                    <p className="finding__detail-text">{f.reasoning}</p>
+                  )}
+                  {f.evidence && (
+                    <div className="finding__detail-evidence">{f.evidence}</div>
+                  )}
+                  <button
+                    className="finding__diff-btn"
+                    onClick={e => { e.stopPropagation(); onOpenFindingDiff(f); }}
+                  >
+                    Open diff ↗
+                  </button>
+                </div>
+              )}
             </div>
             <span className={`finding__decision${markedForImplement ? ' finding__decision--implement' : action === 'ignore' ? ' finding__decision--dismiss' : ''}`}>
               {actionLabel(action)}

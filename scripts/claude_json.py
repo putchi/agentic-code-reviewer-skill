@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
@@ -221,6 +222,107 @@ def normalize_synthesis_finding(finding: dict, index: int) -> dict:
     }
 
 
+def _text_similarity(a: str, b: str) -> float:
+    """Return word-overlap Jaccard similarity between two finding texts (0.0–1.0)."""
+    STOPWORDS = {"the", "a", "an", "is", "in", "of", "to", "and", "or", "not", "this", "that", "it", "be", "for", "on", "at"}
+    wa = {w for w in re.split(r"\W+", a.lower()) if len(w) > 2 and w not in STOPWORDS}
+    wb = {w for w in re.split(r"\W+", b.lower()) if len(w) > 2 and w not in STOPWORDS}
+    if not wa and not wb:
+        return 1.0
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+
+def _dedup_findings(findings: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Deduplicate findings that share the same root cause.
+
+    Pass 1 — exact text: merges findings on the same file with identical (normalised)
+    finding text across any number of source agents.
+
+    Pass 2 — proximity: merges findings on the same file whose lines are within
+    ±LINE_WINDOW *and* whose finding texts are at least SIMILARITY_THRESHOLD similar.
+    Pure line-proximity without textual agreement does NOT merge, so an unrelated
+    'null check' at line 42 and 'SQL injection' at line 44 are kept separate.
+
+    IDs are NOT reassigned — callers that need sequential ids must do so themselves.
+    Returns (deduped_findings, drop_records).
+    """
+    LINE_WINDOW = 5
+    SIMILARITY_THRESHOLD = 0.35
+    drops: list[dict] = []
+
+    # Pass 1: group by (file, normalised finding text) — merges exact/near-exact text dupes
+    text_groups: dict[tuple[str, str], list[dict]] = {}
+    for f in findings:
+        key = (f.get("file", ""), f.get("finding", "").strip().lower())
+        text_groups.setdefault(key, []).append(f)
+
+    merged_by_text: list[dict] = []
+    for (file, _norm_text), group in text_groups.items():
+        if len(group) == 1:
+            merged_by_text.append(group[0])
+            continue
+        best_idx = max(range(len(group)), key=lambda i: len(str(group[i].get("reasoning", ""))) + len(str(group[i].get("evidence", ""))))
+        base = dict(group[best_idx])
+        all_agents: set[str] = set()
+        for g in group:
+            all_agents.update(g.get("source_agents") or [])
+        base["source_agents"] = sorted(all_agents)
+        severity_order = {"CRITICAL": 2, "HIGH": 1, "NOTE": 0}
+        best_sev = max((g.get("severity", "NOTE") for g in group), key=lambda s: severity_order.get(s, 0))
+        base["severity"] = best_sev
+        merged_by_text.append(base)
+        for i, g in enumerate(group):
+            if i != best_idx:
+                drops.append({
+                    "id": str(g.get("id", "")),
+                    "reason": f"merged into {base.get('id', '?')} — duplicate finding text on {file}",
+                })
+
+    # Pass 2: proximity merge — same file, nearby lines, AND similar text
+    by_file: dict[str, list[dict]] = {}
+    for f in merged_by_text:
+        by_file.setdefault(f.get("file", ""), []).append(f)
+
+    deduped: list[dict] = []
+    for file, file_findings in by_file.items():
+        file_findings = sorted(file_findings, key=lambda x: int(x.get("line") or 0))
+        merged_file: list[dict] = []
+        for finding in file_findings:
+            line = int(finding.get("line") or 0)
+            absorbed = False
+            if line > 0:
+                finding_text = finding.get("finding", "")
+                for existing in merged_file:
+                    existing_line = int(existing.get("line") or 0)
+                    if existing_line > 0 and abs(line - existing_line) <= LINE_WINDOW:
+                        sim = _text_similarity(finding_text, existing.get("finding", ""))
+                        if sim < SIMILARITY_THRESHOLD:
+                            continue  # nearby but unrelated — keep both
+                        all_agents = set(existing.get("source_agents") or [])
+                        all_agents.update(finding.get("source_agents") or [])
+                        existing["source_agents"] = sorted(all_agents)
+                        severity_order = {"CRITICAL": 2, "HIGH": 1, "NOTE": 0}
+                        if severity_order.get(finding.get("severity", "NOTE"), 0) > severity_order.get(existing.get("severity", "NOTE"), 0):
+                            existing["severity"] = finding["severity"]
+                        if len(str(finding.get("reasoning", ""))) + len(str(finding.get("evidence", ""))) > \
+                           len(str(existing.get("reasoning", ""))) + len(str(existing.get("evidence", ""))):
+                            existing["reasoning"] = finding.get("reasoning", existing.get("reasoning", ""))
+                            existing["evidence"] = finding.get("evidence", existing.get("evidence", ""))
+                        drops.append({
+                            "id": str(finding.get("id", "")),
+                            "reason": f"merged into {existing.get('id', '?')} — same file {file}, lines {existing_line}±{LINE_WINDOW} overlap, similarity {sim:.2f}",
+                        })
+                        absorbed = True
+                        break
+            if not absorbed:
+                merged_file.append(dict(finding))
+        deduped.extend(merged_file)
+
+    return deduped, drops
+
+
 def normalize_synthesis(args: argparse.Namespace) -> int:
     raw = Path(args.raw_file).read_text(encoding="utf-8", errors="replace")
     text = extract_text(raw)
@@ -228,11 +330,16 @@ def normalize_synthesis(args: argparse.Namespace) -> int:
     findings = parsed.get("deduped_findings", [])
     if not isinstance(findings, list):
         findings = []
+    normalized = [normalize_synthesis_finding(f, i) for i, f in enumerate(findings) if isinstance(f, dict)]
+    # Apply dedup pass as a safety net
+    deduped, extra_drops = _dedup_findings(normalized)
+    existing_drops = parsed.get("dropped_findings_with_reason") if isinstance(parsed.get("dropped_findings_with_reason"), list) else []
+    all_drops = list(existing_drops) + extra_drops
     value = {
         "run_id": args.run_id,
         "two_sentence_verdict": str(parsed.get("two_sentence_verdict") or ""),
-        "deduped_findings": [normalize_synthesis_finding(f, i) for i, f in enumerate(findings) if isinstance(f, dict)],
-        "dropped_findings_with_reason": parsed.get("dropped_findings_with_reason") if isinstance(parsed.get("dropped_findings_with_reason"), list) else [],
+        "deduped_findings": deduped,
+        "dropped_findings_with_reason": all_drops,
         "contradictions_resolved": parsed.get("contradictions_resolved") if isinstance(parsed.get("contradictions_resolved"), list) else [],
         "severity_rationale": parsed.get("severity_rationale") if isinstance(parsed.get("severity_rationale"), dict) else {},
         "recommended_next_actions": parsed.get("recommended_next_actions") if isinstance(parsed.get("recommended_next_actions"), list) else [],
@@ -246,7 +353,7 @@ def normalize_synthesis(args: argparse.Namespace) -> int:
 
 def aggregate_reviewer_findings(out_file: str, agent_files: list[str]) -> list[dict]:
     run_root = Path(out_file).parent
-    merged: dict[tuple[str, int, str], dict] = {}
+    raw_findings: list[dict] = []
     for rel in agent_files:
         path = run_root / rel
         try:
@@ -259,24 +366,20 @@ def aggregate_reviewer_findings(out_file: str, agent_files: list[str]) -> list[d
         for raw in data["findings"]:
             if not isinstance(raw, dict):
                 continue
-            finding = normalize_synthesis_finding(raw, len(merged))
+            finding = normalize_synthesis_finding(raw, len(raw_findings))
             if not finding["finding"]:
                 continue
             source_agents = finding.get("source_agents") or []
             if agent and agent not in source_agents:
                 source_agents.append(agent)
             finding["source_agents"] = source_agents
-            key = (finding["file"], finding["line"], finding["finding"].strip().lower())
-            if key in merged:
-                existing_agents = set(merged[key].get("source_agents") or [])
-                existing_agents.update(source_agents)
-                merged[key]["source_agents"] = sorted(existing_agents)
-                if merged[key]["severity"] != "CRITICAL" and finding["severity"] == "CRITICAL":
-                    merged[key]["severity"] = "CRITICAL"
-                continue
-            finding["id"] = f"f{len(merged) + 1}"
-            merged[key] = finding
-    return list(merged.values())
+            finding["id"] = f"f{len(raw_findings) + 1}"
+            raw_findings.append(finding)
+    deduped, _drops = _dedup_findings(raw_findings)
+    # Reassign sequential IDs now that dedup may have removed entries
+    for i, f in enumerate(deduped):
+        f["id"] = f"f{i + 1}"
+    return deduped
 
 
 def synthesis_fallback(args: argparse.Namespace) -> int:

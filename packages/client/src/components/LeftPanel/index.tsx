@@ -11,6 +11,7 @@ interface Props {
   selectedFile: string | null;
   findingActions: Record<string, FindingAction | ''>;
   onSelectFinding: (f: Finding) => void;
+  onOpenFindingDiff: (f: Finding) => void;
   onSelectFile: (path: string) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
   onBatchAction: (action: FindingAction | 'clear') => void;
@@ -19,7 +20,7 @@ interface Props {
 
 export default function LeftPanel({
   findings, files, selectedFindingId, selectedFile, findingActions,
-  onSelectFinding, onSelectFile, onFindingAction, onBatchAction, batchDisabled = false,
+  onSelectFinding, onOpenFindingDiff, onSelectFile, onFindingAction, onBatchAction, batchDisabled = false,
 }: Props) {
   const [tab, setTab] = useState<'findings' | 'files'>('findings');
   const [query, setQuery] = useState('');
@@ -105,6 +106,7 @@ export default function LeftPanel({
             selectedId={selectedFindingId}
             findingActions={findingActions}
             onSelect={onSelectFinding}
+            onOpenFindingDiff={onOpenFindingDiff}
             onFindingAction={onFindingAction}
           />
         </div>

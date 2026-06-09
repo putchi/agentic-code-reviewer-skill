@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import importlib.util
 import json
 import os
@@ -14,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("orchestrator", ROOT / "scripts" / "orchestrator.py")
 orchestrator = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
+sys.modules["orchestrator"] = orchestrator  # required so @dataclass can resolve the module
 SPEC.loader.exec_module(orchestrator)
 
 

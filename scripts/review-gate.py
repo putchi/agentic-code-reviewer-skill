@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
 import hashlib
 import json
@@ -15,6 +16,7 @@ from typing import Any, Callable, TextIO
 try:
     from orchestrator import AGENTS as EXPECTED_AGENTS
     from orchestrator import EXCLUDES
+    from orchestrator import load_acrignore_excludes
 except Exception:
     EXPECTED_AGENTS = [
         "semantic-analyzer",
@@ -31,6 +33,9 @@ except Exception:
         ":(exclude)*.pdf", ":(exclude)*.zip", ":(exclude)*.tar", ":(exclude)*.gz",
         ":(exclude)dist/", ":(exclude)build/", ":(exclude)node_modules/", ":(exclude).next/", ":(exclude).nuxt/", ":(exclude)target/", ":(exclude)__pycache__/",
     ]
+
+    def load_acrignore_excludes(repo: "Path") -> list:  # type: ignore[misc]
+        return []
 
 ACTIONABLE_ACTIONS = {
     "accept_fix",
@@ -148,11 +153,12 @@ def git_root(cwd: Path) -> Path | None:
 
 
 def current_review_diff(repo: Path) -> str:
-    head_cmd = ["git", "diff", "--text", "HEAD", "--", ".", *EXCLUDES]
+    extra_excludes = load_acrignore_excludes(repo)
+    head_cmd = ["git", "diff", "--text", "HEAD", "--", ".", *EXCLUDES, *extra_excludes]
     diff = run_capture(head_cmd, repo, check=False, timeout=60).stdout
     if diff.strip():
         return diff
-    return run_capture(["git", "diff", "--text", "--", ".", *EXCLUDES], repo, check=False, timeout=60).stdout
+    return run_capture(["git", "diff", "--text", "--", ".", *EXCLUDES, *extra_excludes], repo, check=False, timeout=60).stdout
 
 
 def diff_sha256(diff: str) -> str:
@@ -791,6 +797,11 @@ def hook_event_is_plan_mode(event: dict[str, Any]) -> bool:
     return transcript_has_plan_mode_marker(Path(transcript_path).expanduser(), turn_id)
 
 
+def emit_allow() -> int:
+    print(json.dumps({"decision": "allow"}))
+    return 0
+
+
 def run_gate(
     raw_input: str,
     plugin_root: Path,
@@ -800,7 +811,7 @@ def run_gate(
     status_interval: float = DEFAULT_GATE_STATUS_INTERVAL_SECONDS,
 ) -> int:
     if os.environ.get("ACR_REVIEW_SUBPROCESS") == "1":
-        return 0
+        return emit_allow()
 
     event = parse_hook_event(raw_input)
     plan_mode = hook_event_is_plan_mode(event)
@@ -809,23 +820,23 @@ def run_gate(
 
     repo = git_root(cwd)
     if not repo:
-        return 0
+        return emit_allow()
     if project_config_disables_stop_hook(repo):
-        return 0
+        return emit_allow()
 
     diff = current_review_diff(repo)
     if not diff.strip():
-        return 0
+        return emit_allow()
 
     cleanup_stale_sentinels()
     session_done = done_file(session_id)
     if session_done.exists():
-        return 0
+        return emit_allow()
 
     current_hash = diff_sha256(diff)
     if consume_post_resume_marker(repo, current_hash, diff, session_id):
         touch(session_done)
-        return 0
+        return emit_allow()
 
     deadline = time.time() + max_seconds
 
@@ -839,7 +850,7 @@ def run_gate(
         outcome, decisions = wait_for_final_decision(run_dir, deadline, poll_interval, heartbeat)
     except GateError as exc:
         emit_launch_failure(repo, plugin_root, str(exc))
-        return 0
+        return 0  # emit_launch_failure already printed a block JSON object
 
     touch(session_done)
     write_json(run_dir / "review-gate.json", {
@@ -850,25 +861,30 @@ def run_gate(
     })
     if outcome == "block":
         emit_block(repo, run_dir, plugin_root, decisions)
+    else:
+        emit_allow()
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--plugin-root", default=os.environ.get("CLAUDE_PLUGIN_ROOT"))
-    parser.add_argument("--cwd", default=os.getcwd())
-    parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("ACR_GATE_MAX_SECONDS", "345600")))
-    parser.add_argument("--poll-interval", type=float, default=float(os.environ.get("ACR_GATE_POLL_INTERVAL_SECONDS", "1")))
-    parser.add_argument(
-        "--status-interval",
-        type=float,
-        default=float(os.environ.get("ACR_GATE_STATUS_INTERVAL_SECONDS", str(DEFAULT_GATE_STATUS_INTERVAL_SECONDS))),
-    )
-    args = parser.parse_args()
-
-    plugin_root = Path(args.plugin_root or Path(__file__).resolve().parents[1]).resolve()
-    raw_input = sys.stdin.read()
-    return run_gate(raw_input, plugin_root, Path(args.cwd).resolve(), args.max_seconds, args.poll_interval, args.status_interval)
+    try:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--plugin-root", default=os.environ.get("CLAUDE_PLUGIN_ROOT"))
+        parser.add_argument("--cwd", default=os.getcwd())
+        parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("ACR_GATE_MAX_SECONDS", "345600")))
+        parser.add_argument("--poll-interval", type=float, default=float(os.environ.get("ACR_GATE_POLL_INTERVAL_SECONDS", "1")))
+        parser.add_argument(
+            "--status-interval",
+            type=float,
+            default=float(os.environ.get("ACR_GATE_STATUS_INTERVAL_SECONDS", str(DEFAULT_GATE_STATUS_INTERVAL_SECONDS))),
+        )
+        args = parser.parse_args()
+        plugin_root = Path(args.plugin_root or Path(__file__).resolve().parents[1]).resolve()
+        raw_input = sys.stdin.read()
+        return run_gate(raw_input, plugin_root, Path(args.cwd).resolve(), args.max_seconds, args.poll_interval, args.status_interval)
+    except Exception as e:
+        print(f"acr review-gate unexpected error: {e}", file=sys.stderr)
+        return emit_allow()
 
 
 if __name__ == "__main__":

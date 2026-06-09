@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import fnmatch
 import hashlib
 import json
 import os
@@ -38,6 +40,62 @@ EXCLUDES = [
     ":(exclude)*.pdf", ":(exclude)*.zip", ":(exclude)*.tar", ":(exclude)*.gz",
     ":(exclude)dist/", ":(exclude)build/", ":(exclude)node_modules/", ":(exclude).next/", ":(exclude).nuxt/", ":(exclude)target/", ":(exclude)__pycache__/",
 ]
+
+
+def load_acrignore_excludes(repo: Path) -> list[str]:
+    """Read <repo>/.acrignore and return a list of :(exclude)<pattern> pathspec strings."""
+    acrignore = repo / ".acrignore"
+    if not acrignore.exists():
+        return []
+    excludes: list[str] = []
+    try:
+        lines = acrignore.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("!"):
+            print(f"warning: .acrignore negation patterns are not supported, skipping: {stripped}", file=sys.stderr)
+            continue
+        excludes.append(f":(exclude){stripped}")
+    return excludes
+
+
+def read_project_config(repo: Path) -> dict:
+    """Read .acr.json from the repo: first from HEAD, then working tree."""
+    config_file = ".acr.json"
+    try:
+        result = subprocess.run(
+            ["git", "show", f"HEAD:{config_file}"],
+            cwd=str(repo), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        if result.returncode == 0:
+            parsed = json.loads(result.stdout)
+            if isinstance(parsed, dict):
+                return parsed
+    except Exception:
+        pass
+    try:
+        text = (repo / config_file).read_text(encoding="utf-8")
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {}
+
+
+def resolve_out_of_scope_files(changed_paths: list[str], out_of_scope_globs: list[str]) -> list[str]:
+    """Return paths from changed_paths that match any of the out_of_scope_globs."""
+    matched: list[str] = []
+    for path in changed_paths:
+        for pattern in out_of_scope_globs:
+            if fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(path.split("/")[-1], pattern):
+                matched.append(path)
+                break
+    return matched
 
 
 def utc_now() -> str:
@@ -145,10 +203,11 @@ class Orchestrator:
                 branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], self.repo).stdout.strip()
             except Exception:
                 branch = ""
-            cmd = ["git", "diff", "--text", "HEAD", "--", ".", *EXCLUDES]
+            extra_excludes = load_acrignore_excludes(self.repo)
+            cmd = ["git", "diff", "--text", "HEAD", "--", ".", *EXCLUDES, *extra_excludes]
             diff = run(cmd, self.repo).stdout
             if not diff.strip():
-                diff = run(["git", "diff", "--text", "--", ".", *EXCLUDES], self.repo).stdout
+                diff = run(["git", "diff", "--text", "--", ".", *EXCLUDES, *extra_excludes], self.repo).stdout
         return diff, pr_meta, branch
 
     def validate_reviewer(self, agent: str) -> bool:
@@ -373,6 +432,18 @@ class Orchestrator:
         self.update_run("snapshotting", diff_sha256=diff_hash)
         files = split_diff_files(diff)
         (self.run_dir / "diff.txt").write_text(diff, encoding="utf-8")
+
+        # Resolve out-of-scope files from .acr.json config
+        project_config = read_project_config(self.repo)
+        out_of_scope_globs = project_config.get("outOfScope")
+        if not isinstance(out_of_scope_globs, list):
+            out_of_scope_globs = []
+        out_of_scope_globs = [g for g in out_of_scope_globs if isinstance(g, str)]
+        changed_paths = [f["path"] for f in files if isinstance(f.get("path"), str)]
+        out_of_scope_files = resolve_out_of_scope_files(changed_paths, out_of_scope_globs) if out_of_scope_globs else []
+        write_json(self.run_dir / "scope.json", {"out_of_scope_files": out_of_scope_files})
+        self.update_run("snapshotting", diff_sha256=diff_hash, out_of_scope_files=out_of_scope_files)
+
         write_json(self.run_dir / "context.json", {
             "run_id": self.run_id,
             "repo": str(self.repo),

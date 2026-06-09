@@ -111,7 +111,6 @@ export default function App() {
         const next = e.key === 'j' ? idx + 1 : idx - 1;
         if (next >= 0 && next < filtered.length) {
           setSelectedFinding(filtered[next]);
-          setSelectedFile(filtered[next].file);
         }
         return;
       }
@@ -302,7 +301,8 @@ export default function App() {
           selectedFindingId={selectedFinding?.id ?? null}
           selectedFile={selectedFile}
           findingActions={findingActions}
-          onSelectFinding={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
+          onSelectFinding={f => setSelectedFinding(f)}
+          onOpenFindingDiff={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
           onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
           onFindingAction={setFindingAction}
           onBatchAction={handleBatchAction}

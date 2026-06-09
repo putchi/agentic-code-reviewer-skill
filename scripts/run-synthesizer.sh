@@ -67,6 +67,24 @@ AGENT_FILES=(
     printf '\n\n'
   done
   printf '</findings>\n'
+  if [ -f "${RUN_DIR}/scope.json" ]; then
+    ACR_SCOPE_JSON="${RUN_DIR}/scope.json" python3 -c "
+import html, json, os, sys
+try:
+    data = json.load(open(os.environ['ACR_SCOPE_JSON']))
+    files = data.get('out_of_scope_files', [])
+    if files:
+        sys.stdout.write('<out_of_scope>\n')
+        for f in files:
+            # json.dumps encodes all control chars and non-ASCII as \uXXXX; html.escape
+            # handles any < > & left in the resulting ASCII-safe string
+            safe = html.escape(json.dumps(str(f), ensure_ascii=True))
+            sys.stdout.write('  ' + safe + '\n')
+        sys.stdout.write('</out_of_scope>\n')
+except Exception:
+    pass
+"
+  fi
 } > "$PROMPT_FILE"
 
 acr_build_subprocess_command "judge" "$RAW_FILE"

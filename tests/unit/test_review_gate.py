@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import contextlib
 import importlib.util
 import io
@@ -478,7 +479,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.read_committed_project_config = original_read_committed_project_config
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
 
     def test_missing_committed_project_config_continues_to_diff_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -489,7 +490,7 @@ class ReviewGateTest(unittest.TestCase):
             fallback_cwd.mkdir()
             repo.mkdir()
             plugin_root.mkdir()
-            (repo / ".acr.json").write_text(json.dumps({"disableStopHook": True}), encoding="utf-8")
+            # No .acr.json (or empty config) — gate should proceed to diff check
 
             original_git_root = review_gate.git_root
             original_current_review_diff = review_gate.current_review_diff
@@ -534,8 +535,73 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
             self.assertEqual(seen_diff_repos, [repo])
+
+    def test_gate_error_emits_exactly_one_json_object(self) -> None:
+        """Regression: GateError path must emit exactly one JSON object.
+        emit_launch_failure() already prints a block decision; run_gate must not
+        also call emit_allow() afterwards (which would produce two JSON objects)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_cleanup = review_gate.cleanup_stale_sentinels
+            original_newest_run = review_gate.newest_matching_run
+            original_launch_review = review_gate.launch_review
+            try:
+                def fake_git_root(cwd: Path) -> Path:
+                    return repo
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    return "diff --git a/x.py b/x.py\n+foo"
+
+                def fake_cleanup(*args, **kwargs) -> None:
+                    pass
+
+                def fake_newest_run(repo_arg: Path, diff_sha: str):
+                    return None
+
+                def fake_launch_review(*args, **kwargs):
+                    raise review_gate.GateError("simulated launch failure")
+
+                review_gate.git_root = fake_git_root
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.cleanup_stale_sentinels = fake_cleanup
+                review_gate.newest_matching_run = fake_newest_run
+                review_gate.launch_review = fake_launch_review
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": "gate-error-test", "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.cleanup_stale_sentinels = original_cleanup
+                review_gate.newest_matching_run = original_newest_run
+                review_gate.launch_review = original_launch_review
+
+            self.assertEqual(result, 0)
+            output = stdout.getvalue().strip()
+            # Must be exactly one valid JSON object — not two
+            parsed = json.loads(output)
+            self.assertIn(parsed.get("decision"), {"block", "allow"})
+            # Specifically it must be a block (launch failure) — not allow
+            self.assertEqual(parsed.get("decision"), "block")
 
     def test_valid_post_resume_marker_allows_once_and_consumes_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -802,7 +868,7 @@ class ReviewGateTest(unittest.TestCase):
                         0,
                     )
                 self.assertEqual(result, 0)
-                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
                 self.assertTrue(with_done.exists())
                 self.assertFalse(marker_path.exists())
                 self.assertEqual(
@@ -897,7 +963,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
 
     def test_codex_transcript_plan_mode_hook_without_diff_exits_without_launch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -975,7 +1041,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
 
     def test_plan_mode_hook_with_diff_continues_to_review_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1051,7 +1117,7 @@ class ReviewGateTest(unittest.TestCase):
                     pass
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
             self.assertEqual(len(seen_matching), 1)
 
     def test_non_plan_transcript_hook_continues_to_repo_detection(self) -> None:
@@ -1163,6 +1229,29 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertEqual(seen, [fallback_cwd.resolve()])
+
+
+    def test_main_guard_emits_allow_on_pre_argparse_exception(self) -> None:
+        """Regression: env-var conversion failures before run_gate() must still emit JSON.
+        ACR_GATE_MAX_SECONDS=bad causes float() to raise ValueError before the try/except
+        would have fired in the old code."""
+        original = review_gate.os.environ.get("ACR_GATE_MAX_SECONDS")
+        original_stdin = sys.stdin
+        try:
+            review_gate.os.environ["ACR_GATE_MAX_SECONDS"] = "bad"
+            sys.stdin = io.StringIO("{}")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                result = review_gate.main()
+        finally:
+            if original is None:
+                review_gate.os.environ.pop("ACR_GATE_MAX_SECONDS", None)
+            else:
+                review_gate.os.environ["ACR_GATE_MAX_SECONDS"] = original
+            sys.stdin = original_stdin
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
 
 
 if __name__ == "__main__":
