@@ -1419,6 +1419,34 @@ html, body { overflow-x: auto; }
 
 .btn--cta { height: 34px; padding: 0 16px; font-size: 13px; font-weight: 600; }
 
+/* Review-complete overlay (shown when window.close() is blocked by the browser) */
+.review-done-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+}
+.review-done-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  padding: 40px 56px;
+  text-align: center;
+}
+.review-done-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-default);
+}
+.review-done-hint {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
 /* Countdown overlay */
 .countdown {
   position: absolute; inset: 0;

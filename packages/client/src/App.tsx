@@ -43,6 +43,7 @@ export default function App() {
   const [finalizing, setFinalizing] = useState(false);
   const [chatPrefill, setChatPrefill] = useState<{ id: number; prompt: string } | null>(null);
   const [commentsFocusToken, setCommentsFocusToken] = useState(0);
+  const [reviewDone, setReviewDone] = useState(false);
 
   const findings = data?.findings ?? [];
   const files = data?.files ?? [];
@@ -154,12 +155,17 @@ export default function App() {
     window.alert(`Agentic Code Reviewer could not resume the host agent automatically (${autoResume.reason || 'unknown reason'}).${fallback}`);
   }
 
+  function closeTab() {
+    setReviewDone(true);
+    window.close();
+  }
+
   async function handleCloseRequest() {
     if (unaddressedCriticals.length > 0) {
       setShowCloseGuard(true);
     } else {
       reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
-      window.close();
+      closeTab();
     }
   }
 
@@ -171,7 +177,7 @@ export default function App() {
   async function handleCloseGuardAnyway() {
     setShowCloseGuard(false);
     reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
-    window.close();
+    closeTab();
   }
 
   function handleSelectAllForImplementation() {
@@ -218,7 +224,7 @@ export default function App() {
     setFinalizing(true);
     try {
       reportAutoResumeFailure(await postDecision('implement', buildBasePayload()));
-      window.close();
+      closeTab();
     } finally {
       setFinalizing(false);
     }
@@ -246,7 +252,7 @@ export default function App() {
         comments: nextComments,
         lineAnnotations: allAnnotations,
       })));
-      window.close();
+      closeTab();
     } finally {
       setFinalizing(false);
     }
@@ -386,6 +392,17 @@ export default function App() {
         />
       )}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {reviewDone && (
+        <div className="review-done-overlay">
+          <div className="review-done-card">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--status-ok-fg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <p className="review-done-title">Review decisions saved.</p>
+            <p className="review-done-hint">You can close this tab.</p>
+          </div>
+        </div>
+      )}
       <SettingsPane
         open={showMenu}
         settings={settings}
