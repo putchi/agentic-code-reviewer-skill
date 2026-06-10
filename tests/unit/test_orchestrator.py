@@ -368,5 +368,238 @@ class OrchestratorTest(unittest.TestCase):
                              "launch_ui must be called as fallback when synthesis.json is unreadable")
 
 
+    def test_run_applies_model_overrides_from_acr_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260610T000002Z-models"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            subject = orchestrator.Orchestrator(self._make_no_findings_args(run_dir, repo, plugin_root))
+            fake_diff = "\n".join([f"+ line {i}" for i in range(10)])
+            captured_env: dict[str, str | None] = {}
+
+            def fake_run_reviewers() -> None:
+                captured_env.update({
+                    k: os.environ.get(k)
+                    for k in ["ACR_MODEL_BALANCED", "ACR_MODEL_FAST", "ACR_MODEL_JUDGE"]
+                })
+
+            def fake_synthesize() -> bool:
+                synthesis = {
+                    "run_id": run_dir.name,
+                    "two_sentence_verdict": "no findings",
+                    "deduped_findings": [],
+                    "dropped_findings_with_reason": [],
+                    "contradictions_resolved": [],
+                    "severity_rationale": {},
+                    "recommended_next_actions": [],
+                    "source_agent_result_files": [],
+                }
+                (run_dir / "synthesis.json").write_text(json.dumps(synthesis), encoding="utf-8")
+                subject.update_run("synthesis_complete")
+                return True
+
+            original_read_config = orchestrator.read_project_config
+            original_snapshot = subject.snapshot
+            original_run_reviewers = subject.run_reviewers
+            original_synthesize = subject.synthesize
+            original_launch_ui = subject.launch_ui
+            saved_env = {k: os.environ.pop(k, None) for k in ["ACR_MODEL_BALANCED", "ACR_MODEL_FAST", "ACR_MODEL_JUDGE"]}
+            try:
+                orchestrator.read_project_config = lambda repo: {
+                    "models": {
+                        "balanced": "claude-custom-balanced",
+                        "fast": "claude-custom-fast",
+                        "judge": "claude-custom-judge",
+                    }
+                }
+                subject.snapshot = self._fake_snapshot_with_diff(fake_diff)
+                subject.run_reviewers = fake_run_reviewers
+                subject.synthesize = fake_synthesize
+                subject.launch_ui = lambda status="": None
+
+                subject.run()
+            finally:
+                orchestrator.read_project_config = original_read_config
+                subject.snapshot = original_snapshot
+                subject.run_reviewers = original_run_reviewers
+                subject.synthesize = original_synthesize
+                subject.launch_ui = original_launch_ui
+                for k, v in saved_env.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+            self.assertEqual(captured_env["ACR_MODEL_BALANCED"], "claude-custom-balanced")
+            self.assertEqual(captured_env["ACR_MODEL_FAST"], "claude-custom-fast")
+            self.assertEqual(captured_env["ACR_MODEL_JUDGE"], "claude-custom-judge")
+
+    def test_run_env_var_takes_priority_over_acr_json_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260610T000003Z-models"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            subject = orchestrator.Orchestrator(self._make_no_findings_args(run_dir, repo, plugin_root))
+            fake_diff = "\n".join([f"+ line {i}" for i in range(10)])
+            captured_env: dict[str, str | None] = {}
+
+            def fake_run_reviewers() -> None:
+                captured_env["ACR_MODEL_BALANCED"] = os.environ.get("ACR_MODEL_BALANCED")
+
+            def fake_synthesize() -> bool:
+                synthesis = {
+                    "run_id": run_dir.name,
+                    "two_sentence_verdict": "no findings",
+                    "deduped_findings": [],
+                    "dropped_findings_with_reason": [],
+                    "contradictions_resolved": [],
+                    "severity_rationale": {},
+                    "recommended_next_actions": [],
+                    "source_agent_result_files": [],
+                }
+                (run_dir / "synthesis.json").write_text(json.dumps(synthesis), encoding="utf-8")
+                subject.update_run("synthesis_complete")
+                return True
+
+            original_read_config = orchestrator.read_project_config
+            original_snapshot = subject.snapshot
+            original_run_reviewers = subject.run_reviewers
+            original_synthesize = subject.synthesize
+            original_launch_ui = subject.launch_ui
+            saved_balanced = os.environ.get("ACR_MODEL_BALANCED")
+            saved_fast = os.environ.pop("ACR_MODEL_FAST", None)
+            saved_judge = os.environ.pop("ACR_MODEL_JUDGE", None)
+            try:
+                os.environ["ACR_MODEL_BALANCED"] = "env-override"
+                orchestrator.read_project_config = lambda repo: {
+                    "models": {"balanced": "acr-json-value", "fast": "acr-json-fast", "judge": "acr-json-judge"}
+                }
+                subject.snapshot = self._fake_snapshot_with_diff(fake_diff)
+                subject.run_reviewers = fake_run_reviewers
+                subject.synthesize = fake_synthesize
+                subject.launch_ui = lambda status="": None
+
+                subject.run()
+            finally:
+                orchestrator.read_project_config = original_read_config
+                subject.snapshot = original_snapshot
+                subject.run_reviewers = original_run_reviewers
+                subject.synthesize = original_synthesize
+                subject.launch_ui = original_launch_ui
+                if saved_balanced is None:
+                    os.environ.pop("ACR_MODEL_BALANCED", None)
+                else:
+                    os.environ["ACR_MODEL_BALANCED"] = saved_balanced
+                if saved_fast is None:
+                    os.environ.pop("ACR_MODEL_FAST", None)
+                else:
+                    os.environ["ACR_MODEL_FAST"] = saved_fast
+                if saved_judge is None:
+                    os.environ.pop("ACR_MODEL_JUDGE", None)
+                else:
+                    os.environ["ACR_MODEL_JUDGE"] = saved_judge
+
+            self.assertEqual(captured_env["ACR_MODEL_BALANCED"], "env-override",
+                             "Shell env var must take priority over .acr.json models value")
+
+    def test_run_skips_model_overrides_for_codex_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260610T000004Z-models"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            args = SimpleNamespace(
+                repo=str(repo),
+                run_id=run_dir.name,
+                run_dir=str(run_dir),
+                plugin_root=str(plugin_root),
+                pr=None,
+                platform="codex",
+                provider="codex",
+                review_timeout=1,
+                synthesis_timeout=1,
+            )
+            subject = orchestrator.Orchestrator(args)
+            fake_diff = "\n".join([f"+ line {i}" for i in range(10)])
+            captured_env: dict[str, str | None] = {}
+
+            def fake_run_reviewers() -> None:
+                captured_env.update({
+                    k: os.environ.get(k)
+                    for k in ["ACR_MODEL_BALANCED", "ACR_MODEL_FAST", "ACR_MODEL_JUDGE"]
+                })
+
+            def fake_synthesize() -> bool:
+                synthesis = {
+                    "run_id": run_dir.name,
+                    "two_sentence_verdict": "no findings",
+                    "deduped_findings": [],
+                    "dropped_findings_with_reason": [],
+                    "contradictions_resolved": [],
+                    "severity_rationale": {},
+                    "recommended_next_actions": [],
+                    "source_agent_result_files": [],
+                }
+                (run_dir / "synthesis.json").write_text(json.dumps(synthesis), encoding="utf-8")
+                subject.update_run("synthesis_complete")
+                return True
+
+            original_read_config = orchestrator.read_project_config
+            original_snapshot = subject.snapshot
+            original_run_reviewers = subject.run_reviewers
+            original_synthesize = subject.synthesize
+            original_launch_ui = subject.launch_ui
+            saved_env = {k: os.environ.pop(k, None) for k in ["ACR_MODEL_BALANCED", "ACR_MODEL_FAST", "ACR_MODEL_JUDGE"]}
+            try:
+                orchestrator.read_project_config = lambda repo: {
+                    "models": {
+                        "balanced": "claude-custom-balanced",
+                        "fast": "claude-custom-fast",
+                        "judge": "claude-custom-judge",
+                    }
+                }
+                subject.snapshot = self._fake_snapshot_with_diff(fake_diff)
+                subject.run_reviewers = fake_run_reviewers
+                subject.synthesize = fake_synthesize
+                subject.launch_ui = lambda status="": None
+
+                subject.run()
+            finally:
+                orchestrator.read_project_config = original_read_config
+                subject.snapshot = original_snapshot
+                subject.run_reviewers = original_run_reviewers
+                subject.synthesize = original_synthesize
+                subject.launch_ui = original_launch_ui
+                for k, v in saved_env.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+            self.assertIsNone(captured_env.get("ACR_MODEL_BALANCED"),
+                              "ACR_MODEL_BALANCED must not be set from .acr.json when provider is codex")
+            self.assertIsNone(captured_env.get("ACR_MODEL_FAST"),
+                              "ACR_MODEL_FAST must not be set from .acr.json when provider is codex")
+            self.assertIsNone(captured_env.get("ACR_MODEL_JUDGE"),
+                              "ACR_MODEL_JUDGE must not be set from .acr.json when provider is codex")
+
+
 if __name__ == "__main__":
     unittest.main()

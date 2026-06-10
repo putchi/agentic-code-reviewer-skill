@@ -600,7 +600,7 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
             if isinstance(decision, dict) and decision.get("action") in ACTIONABLE_ACTIONS
         )
     reason = "\n".join([
-        "Agentic Code Reviewer final decisions require host-agent follow-up.",
+        f"ACR review complete — {action_count} review decision(s) require host-agent follow-up.",
         "",
         "Run this exact command now:",
         resume_cmd,
@@ -648,7 +648,7 @@ def emit_launch_failure(repo: Path | None, plugin_root: Path, message: str) -> N
     if repo:
         details.append(f"Repo: {repo}")
     reason = "\n".join([
-        "Agentic Code Reviewer Stop hook could not start or complete the review automatically.",
+        "ACR error: stop hook could not start or complete the review.",
         "",
         "Run this exact command to start the review UI:",
         cmd,

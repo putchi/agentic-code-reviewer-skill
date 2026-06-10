@@ -435,6 +435,19 @@ class Orchestrator:
 
         # Resolve out-of-scope files from .acr.json config
         project_config = read_project_config(self.repo)
+
+        # Apply model overrides from .acr.json (env var takes priority)
+        _models_config = project_config.get("models")
+        if isinstance(_models_config, dict) and self.provider in ("", "claude"):
+            for _env_key, _config_key in [
+                ("ACR_MODEL_BALANCED", "balanced"),
+                ("ACR_MODEL_FAST", "fast"),
+                ("ACR_MODEL_JUDGE", "judge"),
+            ]:
+                _val = _models_config.get(_config_key)
+                if isinstance(_val, str) and _val.strip() and not os.environ.get(_env_key):
+                    os.environ[_env_key] = _val.strip()
+
         out_of_scope_globs = project_config.get("outOfScope")
         if not isinstance(out_of_scope_globs, list):
             out_of_scope_globs = []

@@ -1,5 +1,14 @@
 import { useRef, useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { useChat } from '../../hooks/useChat';
+
+const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+export function isMarkdownRole(role: string): boolean {
+  return role !== 'user';
+}
 
 interface Props {
   providerLabel: string;
@@ -65,7 +74,13 @@ export default function ChatPanel({ providerLabel, chatModelLabel, currentFile, 
                   {role === 'user' ? 'You' : role === 'ai' ? providerLabel : 'Chat error'}
                 </div>
                 <div className={`chat__text${m.streaming ? ' chat__streaming' : ''}`}>
-                  {m.text || (m.streaming ? '' : '(empty)')}
+                  {isMarkdownRole(role) ? (
+                    <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
+                      {m.text || ''}
+                    </ReactMarkdown>
+                  ) : (
+                    m.text || (m.streaming ? '' : '(empty)')
+                  )}
                 </div>
               </div>
             </div>

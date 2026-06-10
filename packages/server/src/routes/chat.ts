@@ -76,6 +76,38 @@ export async function handleChatQuery(payload: { sessionId?: string; prompt?: st
   });
 }
 
+export async function processSDKMessages(
+  messages: AsyncIterable<unknown>,
+  session: Pick<ChatSession, 'resolvedSessionId'>,
+  emit: (obj: unknown) => void,
+): Promise<void> {
+  for await (const msg of messages) {
+    if ((msg as any).type === 'result') {
+      if ((msg as any).session_id && !session.resolvedSessionId) {
+        session.resolvedSessionId = (msg as any).session_id as string;
+      }
+      emit({ type: 'result', success: (msg as any).subtype === 'success' });
+      break;
+    } else if ((msg as any).type === 'assistant') {
+      const content = (msg as any).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'text' && block.text) {
+            emit({ type: 'text_delta', delta: block.text });
+          }
+        }
+      }
+    } else if ((msg as any).type === 'stream_event') {
+      const delta = (msg as any).event?.delta;
+      if (delta?.type === 'text_delta' && delta.text) {
+        emit({ type: 'text_delta', delta: delta.text });
+      }
+    } else if ((msg as any).error) {
+      emit({ type: 'error', message: (msg as any).error ?? String(msg) });
+    }
+  }
+}
+
 async function streamClaudeChat(
   session: ChatSession,
   effectivePrompt: string,
@@ -94,31 +126,7 @@ async function streamClaudeChat(
       ...(session.resolvedSessionId ? { resume: session.resolvedSessionId } : {}),
     },
   });
-
-  for await (const msg of queryStream) {
-    if (msg.type === 'result') {
-      if ((msg as any).session_id && !session.resolvedSessionId) {
-        session.resolvedSessionId = (msg as any).session_id as string;
-      }
-      emit({ type: 'result', success: (msg as any).subtype === 'success' });
-    } else if (msg.type === 'assistant') {
-      const content = (msg as any).message?.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text' && block.text) {
-            emit({ type: 'text_delta', delta: block.text });
-          }
-        }
-      }
-    } else if ((msg as any).type === 'stream_event') {
-      const delta = (msg as any).event?.delta;
-      if (delta?.type === 'text_delta' && delta.text) {
-        emit({ type: 'text_delta', delta: delta.text });
-      }
-    } else if ((msg as any).error) {
-      emit({ type: 'error', message: (msg as any).error ?? String(msg) });
-    }
-  }
+  await processSDKMessages(queryStream, session, emit);
 }
 
 let CodexClass: any = null;

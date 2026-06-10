@@ -142,6 +142,7 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(payload["decision"], "block")
             reason = payload["reason"]
+            self.assertTrue(reason.startswith("ACR review complete —"), reason[:80])
             self.assertIn(expected_cmd, reason)
             self.assertIn(f"Script: {resume_script}", reason)
             self.assertIn(f"Repo: {repo}", reason)
@@ -193,6 +194,7 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(payload["decision"], "block")
             reason = payload["reason"]
+            self.assertTrue(reason.startswith("ACR error:"), reason[:80])
             self.assertIn(expected_cmd, reason)
             self.assertIn(expected_resume_cmd, reason)
             self.assertIn(f"Script: {script}", reason)

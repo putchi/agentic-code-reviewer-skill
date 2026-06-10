@@ -32,7 +32,7 @@ Advanced overrides:
 - `ACR_REVIEW_PROVIDER=claude|codex`
 - `ACR_CLAUDE_BIN=/path/to/claude`
 - `ACR_CODEX_BIN=/path/to/codex`
-- `ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`
+- `ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE` — override the model for each reviewer role. Must be full model IDs (e.g. `claude-haiku-4-5-20251001`, not `haiku`). Can also be set project-wide in `.acr.json` (see [Session-exit gate](#session-exit-gate)).
 - `ACR_CODEX_REASONING_BALANCED`, `ACR_CODEX_REASONING_FAST`, `ACR_CODEX_REASONING_JUDGE`
 
 ## How it works
@@ -216,15 +216,27 @@ When the optional VS Code extension is installed and active in the workspace, Ag
 
 This runs on Claude Code through the user-level enabled plugin and on Codex through `~/.codex/hooks.json`. It has no Copilot CLI equivalent.
 
-Projects can commit a root-level `.acr.json` repo config to opt out of only the automatic Stop-hook gate:
+Projects can commit a root-level `.acr.json` repo config to control review behaviour:
 
 ```json
 {
-  "disableStopHook": true
+  "disableStopHook": true,
+  "models": {
+    "balanced": "claude-sonnet-4-6",
+    "fast": "claude-haiku-4-5-20251001",
+    "judge": "claude-opus-4-8"
+  },
+  "outOfScope": ["generated/**", "dist/**", "*.pb.go"]
 }
 ```
 
-Only boolean `true` in the committed `HEAD:.acr.json` disables the gate; missing, malformed, non-object, non-boolean, or uncommitted working-tree values are ignored. Manual review commands still work (`/code-review`, Codex skill invocation, and direct `scripts/orchestrator.sh`). Future personal overrides should use a separate ignored file such as `.acr.local.json`; that local override is not implemented today.
+**`disableStopHook`** — set to boolean `true` to opt out of the automatic Stop-hook gate for this repo. Only boolean `true` in the committed `HEAD:.acr.json` takes effect; missing, malformed, non-object, non-boolean, or uncommitted working-tree values are ignored. Manual review commands still work (`/code-review`, Codex skill invocation, and direct `scripts/orchestrator.sh`). Future personal overrides should use a separate ignored file such as `.acr.local.json`; that local override is not implemented today.
+
+**`models`** — set default model IDs for the three reviewer roles. `balanced` is used by four of the five reviewer agents and the Ask AI chat; `fast` is used by the test-coverage-analyzer reviewer; `judge` is used by the synthesizer. Values must be full model IDs accepted by the provider CLI `--model` flag (e.g. `claude-haiku-4-5-20251001`) — not shorthand aliases like `haiku` or `sonnet`. Shell environment variables (`ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`) take priority over `.acr.json` values. This field is read by `orchestrator.py` and affects all orchestrator-launched reviews (manual and auto-gate).
+
+**`outOfScope`** — list of [fnmatch](https://docs.python.org/3/library/fnmatch.html) glob patterns for files to mark as out-of-scope in reviews. Matched against the full relative path and the filename component.
+
+Committed `HEAD:.acr.json` is read first; the working-tree file is used as a fallback so a newly created or gitignored file takes effect without requiring a commit. Missing or malformed fields are silently ignored.
 
 The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop event:
 
