@@ -9,9 +9,10 @@ interface Props {
   onSelect: (f: Finding) => void;
   onOpenFindingDiff: (f: Finding) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
+  onAskAI: (prompt: string) => void;
 }
 
-export default function FindingsList({ findings, selectedId, findingActions, onSelect, onOpenFindingDiff, onFindingAction }: Props) {
+export default function FindingsList({ findings, selectedId, findingActions, onSelect, onOpenFindingDiff, onFindingAction, onAskAI }: Props) {
   if (!findings.length) {
     return (
       <div style={{ padding: '32px 18px', textAlign: 'center', color: 'var(--fg-faint)', fontSize: 12 }}>
@@ -63,12 +64,20 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
                   {f.evidence && (
                     <div className="finding__detail-evidence">{f.evidence}</div>
                   )}
-                  <button
-                    className="finding__diff-btn"
-                    onClick={e => { e.stopPropagation(); onOpenFindingDiff(f); }}
-                  >
-                    Open diff ↗
-                  </button>
+                  <div className="finding__detail-actions">
+                    <button
+                      className="finding__diff-btn"
+                      onClick={e => { e.stopPropagation(); onOpenFindingDiff(f); }}
+                    >
+                      Open diff ↗
+                    </button>
+                    <button
+                      className="finding__diff-btn"
+                      onClick={e => { e.stopPropagation(); onAskAI(`Tell me more about this finding:\n\n**${f.finding}** (${f.file}:${f.line ?? ''})\n\n${f.reasoning ?? ''}`); }}
+                    >
+                      Ask AI
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

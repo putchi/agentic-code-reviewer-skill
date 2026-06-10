@@ -15,12 +15,13 @@ interface Props {
   onSelectFile: (path: string) => void;
   onFindingAction: (id: string, action: FindingAction | '') => void;
   onBatchAction: (action: FindingAction | 'clear') => void;
+  onAskAI: (prompt: string) => void;
   batchDisabled?: boolean;
 }
 
 export default function LeftPanel({
   findings, files, selectedFindingId, selectedFile, findingActions,
-  onSelectFinding, onOpenFindingDiff, onSelectFile, onFindingAction, onBatchAction, batchDisabled = false,
+  onSelectFinding, onOpenFindingDiff, onSelectFile, onFindingAction, onBatchAction, onAskAI, batchDisabled = false,
 }: Props) {
   const [tab, setTab] = useState<'findings' | 'files'>('findings');
   const [query, setQuery] = useState('');
@@ -108,6 +109,7 @@ export default function LeftPanel({
             onSelect={onSelectFinding}
             onOpenFindingDiff={onOpenFindingDiff}
             onFindingAction={onFindingAction}
+            onAskAI={onAskAI}
           />
         </div>
       ) : (

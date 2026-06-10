@@ -307,11 +307,12 @@ export default function App() {
           selectedFindingId={selectedFinding?.id ?? null}
           selectedFile={selectedFile}
           findingActions={findingActions}
-          onSelectFinding={f => setSelectedFinding(f)}
+          onSelectFinding={f => setSelectedFinding(prev => prev?.id === f.id ? null : f)}
           onOpenFindingDiff={f => { setSelectedFinding(f); setSelectedFile(f.file); }}
           onSelectFile={path => { setSelectedFile(path); setSelectedFinding(null); }}
           onFindingAction={setFindingAction}
           onBatchAction={handleBatchAction}
+          onAskAI={prompt => { setChatPrefill({ id: Date.now(), prompt }); setRightPanelOpen(true); }}
           batchDisabled={finalizing || findings.length === 0} />
         <CenterPanel
           data={data ?? null}

@@ -611,6 +611,12 @@ html, body { overflow-x: auto; }
   font-size: 11.5px;
   line-height: 1.45;
 }
+.finding__detail-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .finding__diff-btn {
   align-self: flex-start;
   padding: 3px 8px;
