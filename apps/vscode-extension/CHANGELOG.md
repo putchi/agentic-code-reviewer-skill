@@ -2,12 +2,18 @@
 
 ## [1.4.11] - 2026-06-10
 
+### Added
+
+- Clicking an already-expanded finding in the left panel now collapses it (toggle behaviour).
+- **Ask AI** button added to the finding detail pane, next to **Open diff ↗**, to send the finding context directly to the chat panel.
+
 ### Fixed
 
 - Stop hook no longer emits invalid JSON — `allow_stop()` now exits with no output, matching the Claude Code schema (`"approve"` | `"block"` only; `"allow"` was never valid).
 - Review UI no longer opens a blank tab when the server is launched without a run directory (dev mode, stray launches). Legacy `--findings-file` launches still auto-open as before.
 - Zero-findings reviews no longer open the review UI — synthesis that produces no findings writes a `READY` sentinel and exits silently. The Stop hook treats this as a clean allow.
 - `diff_too_small` and `no_findings` statuses are now recognized as terminal allow statuses in the Stop hook gate, preventing hangs on otherwise-clean exits.
+- Chat "network error" on slow AI responses fixed — SSE stream now sends keepalive comments every 15 s so Bun's idle-connection timeout does not close the connection before the first token arrives.
 
 ## [1.4.10] - 2026-06-09
 

@@ -75,7 +75,7 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
                       className="finding__diff-btn"
                       onClick={e => { e.stopPropagation(); onAskAI(`Tell me more about this finding:\n\n**${f.finding}** (${f.file}:${f.line ?? ''})\n\n${f.reasoning ?? ''}`); }}
                     >
-                      Ask AI
+                      Ask AI&nbsp;<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{display:'inline',verticalAlign:'middle',marginTop:'-1px'}}><path d="M8 2v2M8 12v2M2 8h2M12 8h2M4.22 4.22l1.42 1.42M10.36 10.36l1.42 1.42M4.22 11.78l1.42-1.42M10.36 5.64l1.42-1.42"/></svg>
                     </button>
                   </div>
                 </div>

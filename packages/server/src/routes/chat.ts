@@ -45,6 +45,10 @@ export async function handleChatQuery(payload: { sessionId?: string; prompt?: st
   const stream = new ReadableStream({
     async start(ctrl) {
       const emit = (obj: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let closed = false;
+      const keepalive = setInterval(() => {
+        if (!closed) ctrl.enqueue(enc.encode(': keepalive\n\n'));
+      }, 15_000);
       try {
         if (session.provider === 'codex') {
           await streamCodexChat(session, effectivePrompt, abort, emit);
@@ -58,6 +62,8 @@ export async function handleChatQuery(payload: { sessionId?: string; prompt?: st
         }
         ctrl.enqueue(enc.encode('data: [DONE]\n\n'));
       } finally {
+        closed = true;
+        clearInterval(keepalive);
         session.abortController = null;
         ctrl.close();
       }
