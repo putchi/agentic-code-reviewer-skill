@@ -1,4 +1,4 @@
-import { portArg, runDir } from './config';
+import { portArg, runDir, explicitFindingsFile } from './config';
 import { serveClient } from './serve-client';
 // @ts-ignore — Bun resolves this at compile time; TS doesn't know the attribute
 import clientHtml from '../../client/dist/index.html' with { type: 'text' };
@@ -70,4 +70,4 @@ if (runDir) {
 }
 console.log(`Review server listening at ${url}`);
 resetIdle(onIdle);
-openBrowser(url);
+if (runDir || explicitFindingsFile) openBrowser(url);

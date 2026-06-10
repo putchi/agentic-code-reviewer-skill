@@ -488,6 +488,15 @@ class Orchestrator:
             return 0
         self.run_reviewers()
         synthesis_ok = self.synthesize()
+        if synthesis_ok:
+            try:
+                synthesis = json.loads((self.run_dir / "synthesis.json").read_text(encoding="utf-8"))
+                if not synthesis.get("deduped_findings"):
+                    (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
+                    self.update_run("no_findings")
+                    return 0
+            except Exception:
+                pass
         self.launch_ui("awaiting_decisions" if synthesis_ok else "synthesis_failed")
         return 0
 

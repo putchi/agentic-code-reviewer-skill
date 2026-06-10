@@ -253,5 +253,120 @@ class OrchestratorTest(unittest.TestCase):
             self.assertIn("runId='20260531T000000Z-old-ui'", (run_dir / "ui.error").read_text(encoding="utf-8"))
 
 
+    def _make_no_findings_args(self, run_dir: Path, repo: Path, plugin_root: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            repo=str(repo),
+            run_id=run_dir.name,
+            run_dir=str(run_dir),
+            plugin_root=str(plugin_root),
+            pr=None,
+            platform="",
+            provider="",
+            review_timeout=1,
+            synthesis_timeout=1,
+        )
+
+    def _fake_snapshot_with_diff(self, diff: str):
+        def fake_snapshot():
+            return diff, None, "main"
+        return fake_snapshot
+
+    def test_run_skips_launch_ui_and_sets_no_findings_when_synthesis_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260610T000000Z-nofind"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            subject = orchestrator.Orchestrator(self._make_no_findings_args(run_dir, repo, plugin_root))
+            launch_ui_called: list[str] = []
+
+            fake_diff = "\n".join([f"+ line {i}" for i in range(10)])
+
+            def fake_synthesize() -> bool:
+                synthesis = {
+                    "run_id": run_dir.name,
+                    "two_sentence_verdict": "no findings",
+                    "deduped_findings": [],
+                    "dropped_findings_with_reason": [],
+                    "contradictions_resolved": [],
+                    "severity_rationale": {},
+                    "recommended_next_actions": [],
+                    "source_agent_result_files": [],
+                }
+                (run_dir / "synthesis.json").write_text(json.dumps(synthesis), encoding="utf-8")
+                subject.update_run("synthesis_complete")
+                return True
+
+            original_snapshot = subject.snapshot
+            original_run_reviewers = subject.run_reviewers
+            original_synthesize = subject.synthesize
+            original_launch_ui = subject.launch_ui
+            try:
+                subject.snapshot = self._fake_snapshot_with_diff(fake_diff)
+                subject.run_reviewers = lambda: None
+                subject.synthesize = fake_synthesize
+                subject.launch_ui = lambda status="": launch_ui_called.append(status)
+
+                result = subject.run()
+            finally:
+                subject.snapshot = original_snapshot
+                subject.run_reviewers = original_run_reviewers
+                subject.synthesize = original_synthesize
+                subject.launch_ui = original_launch_ui
+
+            self.assertEqual(result, 0)
+            self.assertEqual(launch_ui_called, [], "launch_ui must not be called for zero-findings runs")
+            self.assertTrue((run_dir / "READY").exists(), "READY sentinel must be written")
+            run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run.get("status"), "no_findings")
+
+    def test_run_falls_through_to_launch_ui_when_synthesis_json_unreadable(self) -> None:
+        """If synthesis.json can't be read after synthesize() returns True, fall through to launch_ui."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260610T000001Z-nofind"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            subject = orchestrator.Orchestrator(self._make_no_findings_args(run_dir, repo, plugin_root))
+            launch_ui_called: list[str] = []
+            fake_diff = "\n".join([f"+ line {i}" for i in range(10)])
+
+            def fake_synthesize_no_file() -> bool:
+                # synthesis.json deliberately not written — simulates partial/corrupt write
+                subject.update_run("synthesis_complete")
+                return True
+
+            original_snapshot = subject.snapshot
+            original_run_reviewers = subject.run_reviewers
+            original_synthesize = subject.synthesize
+            original_launch_ui = subject.launch_ui
+            try:
+                subject.snapshot = self._fake_snapshot_with_diff(fake_diff)
+                subject.run_reviewers = lambda: None
+                subject.synthesize = fake_synthesize_no_file
+                subject.launch_ui = lambda status="": launch_ui_called.append(status)
+
+                result = subject.run()
+            finally:
+                subject.snapshot = original_snapshot
+                subject.run_reviewers = original_run_reviewers
+                subject.synthesize = original_synthesize
+                subject.launch_ui = original_launch_ui
+
+            self.assertEqual(result, 0)
+            self.assertEqual(launch_ui_called, ["awaiting_decisions"],
+                             "launch_ui must be called as fallback when synthesis.json is unreadable")
+
+
 if __name__ == "__main__":
     unittest.main()

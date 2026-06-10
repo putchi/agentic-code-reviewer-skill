@@ -479,7 +479,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.read_committed_project_config = original_read_committed_project_config
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+            self.assertEqual(stdout.getvalue(), '')
 
     def test_missing_committed_project_config_continues_to_diff_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -535,13 +535,13 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+            self.assertEqual(stdout.getvalue(), '')
             self.assertEqual(seen_diff_repos, [repo])
 
     def test_gate_error_emits_exactly_one_json_object(self) -> None:
         """Regression: GateError path must emit exactly one JSON object.
         emit_launch_failure() already prints a block decision; run_gate must not
-        also call emit_allow() afterwards (which would produce two JSON objects)."""
+        also call allow_stop() afterwards (which would produce two JSON objects)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fallback_cwd = root / "fallback"
@@ -599,7 +599,7 @@ class ReviewGateTest(unittest.TestCase):
             output = stdout.getvalue().strip()
             # Must be exactly one valid JSON object — not two
             parsed = json.loads(output)
-            self.assertIn(parsed.get("decision"), {"block", "allow"})
+            self.assertIn(parsed.get("decision"), {"block", "approve"})
             # Specifically it must be a block (launch failure) — not allow
             self.assertEqual(parsed.get("decision"), "block")
 
@@ -868,7 +868,7 @@ class ReviewGateTest(unittest.TestCase):
                         0,
                     )
                 self.assertEqual(result, 0)
-                self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+                self.assertEqual(stdout.getvalue(), '')
                 self.assertTrue(with_done.exists())
                 self.assertFalse(marker_path.exists())
                 self.assertEqual(
@@ -963,7 +963,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+            self.assertEqual(stdout.getvalue(), '')
 
     def test_codex_transcript_plan_mode_hook_without_diff_exits_without_launch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1041,7 +1041,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = original_launch_review
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+            self.assertEqual(stdout.getvalue(), '')
 
     def test_plan_mode_hook_with_diff_continues_to_review_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1117,7 +1117,7 @@ class ReviewGateTest(unittest.TestCase):
                     pass
 
             self.assertEqual(result, 0)
-            self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+            self.assertEqual(stdout.getvalue(), '')
             self.assertEqual(len(seen_matching), 1)
 
     def test_non_plan_transcript_hook_continues_to_repo_detection(self) -> None:
@@ -1231,10 +1231,10 @@ class ReviewGateTest(unittest.TestCase):
             self.assertEqual(seen, [fallback_cwd.resolve()])
 
 
-    def test_main_guard_emits_allow_on_pre_argparse_exception(self) -> None:
-        """Regression: env-var conversion failures before run_gate() must still emit JSON.
+    def test_main_guard_allows_stop_on_pre_argparse_exception(self) -> None:
+        """Regression: env-var conversion failures before run_gate() must still allow the stop.
         ACR_GATE_MAX_SECONDS=bad causes float() to raise ValueError before the try/except
-        would have fired in the old code."""
+        would have fired in the old code. allow_stop() now emits nothing (empty stdout)."""
         original = review_gate.os.environ.get("ACR_GATE_MAX_SECONDS")
         original_stdin = sys.stdin
         try:
@@ -1251,7 +1251,7 @@ class ReviewGateTest(unittest.TestCase):
             sys.stdin = original_stdin
 
         self.assertEqual(result, 0)
-        self.assertEqual(stdout.getvalue(), '{"decision": "allow"}\n')
+        self.assertEqual(stdout.getvalue(), '')
 
 
 if __name__ == "__main__":

@@ -50,7 +50,8 @@ ACTION_LABELS = {
     "create_follow_up_task": "create follow-up task",
     "ignore": "ignore",
 }
-UI_READY_STATUSES = {"awaiting_decisions", "synthesis_failed", "decisions_saved", "decisions_ready", "no_changes"}
+UI_READY_STATUSES = {"awaiting_decisions", "synthesis_failed", "decisions_saved", "decisions_ready", "no_changes", "diff_too_small", "no_findings"}
+NOTHING_TO_DECIDE_STATUSES = {"no_changes", "diff_too_small", "no_findings"}
 FINAL_ROUTE_ACTIONS = {"implement", "done"}
 DEFAULT_GATE_STATUS_INTERVAL_SECONDS = 10.0
 POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
@@ -570,7 +571,7 @@ def wait_for_final_decision(
         if heartbeat:
             heartbeat.maybe_emit(run_dir, waiting_for_ui_decision=True)
         status = str(run.get("status") or "")
-        if status == "no_changes":
+        if status in NOTHING_TO_DECIDE_STATUSES:
             return "allow", None
 
         decisions = load_decisions(run_dir)
@@ -797,8 +798,9 @@ def hook_event_is_plan_mode(event: dict[str, Any]) -> bool:
     return transcript_has_plan_mode_marker(Path(transcript_path).expanduser(), turn_id)
 
 
-def emit_allow() -> int:
-    print(json.dumps({"decision": "allow"}))
+def allow_stop() -> int:
+    # A Stop hook allows the stop by emitting no `decision`. The schema accepts
+    # decision "approve" | "block" only; "allow" fails validation.
     return 0
 
 
@@ -811,7 +813,7 @@ def run_gate(
     status_interval: float = DEFAULT_GATE_STATUS_INTERVAL_SECONDS,
 ) -> int:
     if os.environ.get("ACR_REVIEW_SUBPROCESS") == "1":
-        return emit_allow()
+        return allow_stop()
 
     event = parse_hook_event(raw_input)
     plan_mode = hook_event_is_plan_mode(event)
@@ -820,23 +822,23 @@ def run_gate(
 
     repo = git_root(cwd)
     if not repo:
-        return emit_allow()
+        return allow_stop()
     if project_config_disables_stop_hook(repo):
-        return emit_allow()
+        return allow_stop()
 
     diff = current_review_diff(repo)
     if not diff.strip():
-        return emit_allow()
+        return allow_stop()
 
     cleanup_stale_sentinels()
     session_done = done_file(session_id)
     if session_done.exists():
-        return emit_allow()
+        return allow_stop()
 
     current_hash = diff_sha256(diff)
     if consume_post_resume_marker(repo, current_hash, diff, session_id):
         touch(session_done)
-        return emit_allow()
+        return allow_stop()
 
     deadline = time.time() + max_seconds
 
@@ -862,7 +864,7 @@ def run_gate(
     if outcome == "block":
         emit_block(repo, run_dir, plugin_root, decisions)
     else:
-        emit_allow()
+        allow_stop()
     return 0
 
 
@@ -884,7 +886,7 @@ def main() -> int:
         return run_gate(raw_input, plugin_root, Path(args.cwd).resolve(), args.max_seconds, args.poll_interval, args.status_interval)
     except Exception as e:
         print(f"acr review-gate unexpected error: {e}", file=sys.stderr)
-        return emit_allow()
+        return allow_stop()
 
 
 if __name__ == "__main__":

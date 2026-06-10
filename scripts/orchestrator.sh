@@ -112,6 +112,8 @@ LABELS = {
     "launching_ui": "opening UI",
     "awaiting_decisions": "UI ready",
     "no_changes": "no reviewable changes",
+    "no_findings": "no findings",
+    "diff_too_small": "diff too small",
 }
 
 run_dir = Path(sys.argv[1])
@@ -145,7 +147,7 @@ status = str(run.get("status") or "starting")
 label = LABELS.get(status, status.replace("_", " "))
 now = dt.datetime.now().strftime("%H:%M:%S")
 parts = [f"[agentic-review {now}] {label}"]
-if status not in {"starting", "started", "snapshotting", "no_changes"}:
+if status not in {"starting", "started", "snapshotting", "no_changes", "no_findings", "diff_too_small"}:
     parts.append(f"agents {agent_done}/5")
     if agent_failed:
         parts.append(f"{agent_failed} failed")
@@ -165,7 +167,7 @@ except Exception:
     print("")
 PY
 )"
-  if [ -f "$RUN_DIR/READY" ] || [ "$STATUS" = "awaiting_decisions" ] || [ "$STATUS" = "synthesis_failed" ] || [ "$STATUS" = "no_changes" ]; then
+  if [ -f "$RUN_DIR/READY" ] || [ "$STATUS" = "awaiting_decisions" ] || [ "$STATUS" = "synthesis_failed" ] || [ "$STATUS" = "no_changes" ] || [ "$STATUS" = "no_findings" ] || [ "$STATUS" = "diff_too_small" ]; then
     break
   fi
 

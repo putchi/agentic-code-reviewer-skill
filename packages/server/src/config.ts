@@ -26,6 +26,7 @@ function resolvePluginRoot(): string {
 
 export const sessionId = arg('--session') || 'unknown';
 export const runDir = arg('--run-dir') ? resolve(arg('--run-dir')!) : null;
+export const explicitFindingsFile = arg('--findings-file') !== null;
 export const findingsFile = arg('--findings-file') || `/tmp/claude-code-review-${sessionId}.json`;
 export const saveDir = arg('--save-dir') || resolve(process.cwd(), 'docs', 'code-reviews');
 export const portArg = parseInt(arg('--port') || '0', 10);
