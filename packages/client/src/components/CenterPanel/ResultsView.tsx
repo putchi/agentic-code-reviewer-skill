@@ -181,8 +181,8 @@ function FindingCard({ f, selected, action, onSelect, onFindingAction, onAskAI }
           title="Ask AI about this finding"
           onClick={() => onAskAI(buildFindingAskPrompt(f))}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3c-4.97 0-9 3.185-9 7.115 0 2.557 1.522 4.82 3.889 6.115L6 20l3.949-2.104A10.2 10.2 0 0 0 12 18.23c4.97 0 9-3.185 9-7.115S16.97 3 12 3z" />
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 2v2M8 12v2M2 8h2M12 8h2M4.22 4.22l1.42 1.42M10.36 10.36l1.42 1.42M4.22 11.78l1.42-1.42M10.36 5.64l1.42-1.42"/>
           </svg>
           Ask AI
         </button>

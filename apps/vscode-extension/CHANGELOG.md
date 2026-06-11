@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.13] - 2026-06-11
+
+### Fixed
+
+- Header "Ask AI" button no longer sends a pre-filled prompt — it now opens the chat panel with an empty input.
+- Ask AI icon in the finding card actions now matches the sparkles icon used elsewhere in the UI.
+
+### Changed
+
+- Vite dev proxy port is configurable via `VITE_API_PORT` env var (fallback `7788`), enabling the dev server to proxy to a non-default API port.
+
 ## [1.4.11] - 2026-06-10
 
 ### Added

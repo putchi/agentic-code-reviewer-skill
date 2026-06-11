@@ -65,7 +65,7 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
       <div className="hdr__actions">
         <button
           className="btn btn--sm btn--ghost"
-          onClick={() => onAskAI?.('Summarize this code review and tell me what to prioritize.')}
+          onClick={() => onAskAI?.('')}
           title="Ask AI about this review"
         >
           {/* sparkles icon */}

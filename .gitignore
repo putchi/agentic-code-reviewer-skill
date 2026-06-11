@@ -37,3 +37,10 @@ packages/client/dist/
 packages/client/.vite/
 bun.lockb
 dist/
+dev-mock.sh
+
+# Runtime artifacts written by the server when pointed at fixture dirs
+tests/fixtures/smoke/**/decisions.json
+tests/fixtures/smoke/**/auto-resume.json
+tests/fixtures/smoke/**/resume-artifact.json
+tests/fixtures/smoke/**/ui-port
