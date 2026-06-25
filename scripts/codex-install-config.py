@@ -8,8 +8,13 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_HOOK_COMMAND = 'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"'
+DEFAULT_HOOK_COMMAND = '/bin/bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"'
 DEFAULT_HOOK_TIMEOUT_SECONDS = 210
+LEGACY_HOOK_COMMANDS = {
+    'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"',
+    "bash $HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh",
+}
+AGENTIC_REVIEW_HOOK_COMMANDS = {DEFAULT_HOOK_COMMAND, *LEGACY_HOOK_COMMANDS}
 
 
 def load_hooks_json(path: Path) -> dict[str, Any]:
@@ -50,6 +55,10 @@ def stop_hook_commands(data: dict[str, Any]) -> list[str]:
     return commands
 
 
+def is_agentic_review_stop_hook(command: Any) -> bool:
+    return isinstance(command, str) and command in AGENTIC_REVIEW_HOOK_COMMANDS
+
+
 def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMMAND) -> bool:
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
@@ -60,19 +69,47 @@ def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMM
 
     changed = False
     found = False
+    next_stop: list[Any] = []
     for entry in stop:
         if not isinstance(entry, dict):
+            next_stop.append(entry)
             continue
-        for hook in entry.get("hooks", []):
+        entry_hooks = entry.get("hooks", [])
+        if not isinstance(entry_hooks, list):
+            next_stop.append(entry)
+            continue
+
+        next_hooks: list[Any] = []
+        for hook in entry_hooks:
             if not isinstance(hook, dict) or hook.get("type") != "command":
+                next_hooks.append(hook)
                 continue
-            if hook.get("command") != command:
+            if not is_agentic_review_stop_hook(hook.get("command")):
+                next_hooks.append(hook)
+                continue
+            if found:
+                changed = True
                 continue
             found = True
+            if hook.get("command") != command:
+                hook["command"] = command
+                changed = True
             if hook.get("timeout") != DEFAULT_HOOK_TIMEOUT_SECONDS:
                 hook["timeout"] = DEFAULT_HOOK_TIMEOUT_SECONDS
                 changed = True
+            next_hooks.append(hook)
+
+        if len(next_hooks) != len(entry_hooks):
+            changed = True
+        if next_hooks or set(entry.keys()) != {"hooks"}:
+            entry["hooks"] = next_hooks
+            next_stop.append(entry)
+        else:
+            changed = True
     if found:
+        if next_stop != stop:
+            hooks["Stop"] = next_stop
+            changed = True
         return changed
 
     stop.append({

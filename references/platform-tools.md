@@ -59,7 +59,7 @@ Claude Code loads the Stop hook from `hooks/hooks.json` through the plugin manif
 The installer preserves existing hooks, appends this Stop command when missing, and ensures `[features] hooks = true`:
 
 ```bash
-bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"
+/bin/bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"
 ```
 
 Codex may require reviewing or trusting the hook through `/hooks`. Manual skill invocation still works when the hook is installed or disabled.

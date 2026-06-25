@@ -31,7 +31,7 @@ class CodexInstallConfigTest(unittest.TestCase):
             stop_hooks = data["hooks"]["Stop"]
             self.assertEqual(
                 stop_hooks[0]["hooks"][0]["command"],
-                codex_install_config.DEFAULT_HOOK_COMMAND,
+                '/bin/bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"',
             )
             self.assertEqual(
                 stop_hooks[0]["hooks"][0]["timeout"],
@@ -105,6 +105,78 @@ class CodexInstallConfigTest(unittest.TestCase):
                 data["hooks"]["Stop"][0]["hooks"][0]["timeout"],
                 codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
             )
+
+    def test_legacy_acr_stop_hook_command_is_upgraded_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hooks_file = root / "hooks.json"
+            config_file = root / "config.toml"
+            legacy_command = 'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"'
+            hooks_file.write_text(json.dumps({
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": legacy_command,
+                                    "timeout": 345600,
+                                }
+                            ]
+                        }
+                    ],
+                }
+            }), encoding="utf-8")
+            config_file.write_text("[features]\nhooks = true\n", encoding="utf-8")
+
+            result = codex_install_config.configure_codex_hooks(hooks_file, config_file)
+
+            self.assertTrue(result["hook_added"])
+            data = json.loads(hooks_file.read_text(encoding="utf-8"))
+            commands = codex_install_config.stop_hook_commands(data)
+            self.assertEqual(commands, [codex_install_config.DEFAULT_HOOK_COMMAND])
+            self.assertEqual(
+                data["hooks"]["Stop"][0]["hooks"][0]["timeout"],
+                codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
+            )
+
+    def test_duplicate_legacy_acr_stop_hook_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hooks_file = root / "hooks.json"
+            config_file = root / "config.toml"
+            hooks_file.write_text(json.dumps({
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": codex_install_config.DEFAULT_HOOK_COMMAND,
+                                    "timeout": codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
+                                }
+                            ]
+                        },
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": 'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"',
+                                    "timeout": codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
+                                }
+                            ]
+                        },
+                    ],
+                }
+            }), encoding="utf-8")
+            config_file.write_text("[features]\nhooks = true\n", encoding="utf-8")
+
+            result = codex_install_config.configure_codex_hooks(hooks_file, config_file)
+
+            self.assertTrue(result["hook_added"])
+            data = json.loads(hooks_file.read_text(encoding="utf-8"))
+            commands = codex_install_config.stop_hook_commands(data)
+            self.assertEqual(commands.count(codex_install_config.DEFAULT_HOOK_COMMAND), 1)
 
     def test_features_hooks_false_is_changed_without_dropping_other_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
