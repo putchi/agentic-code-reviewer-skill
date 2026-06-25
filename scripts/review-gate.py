@@ -758,30 +758,22 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
 def emit_prompt(repo: Path, plugin_root: Path, session_id: str, current_diff_sha: str, current_diff: str) -> None:
     review_script = plugin_root / "scripts" / "orchestrator.sh"
     review_cmd = f"bash {shlex.quote(str(review_script))} --repo {shlex.quote(str(repo))}"
-    marker_path = write_prompt_marker(repo, session_id, current_diff_sha, current_diff)
+    write_prompt_marker(repo, session_id, current_diff_sha, current_diff)
     reason = "\n".join([
-        "ACR detected changed files.",
+        "Do you want me to run the Agentic Code Reviewer now?",
         "",
-        "Run a code review before ending this session?",
+        "I found changed files in this repo.",
         "",
-        "Default: no. Stop again with the same diff to exit without review.",
-        "",
-        "To run the review now:",
-        review_cmd,
-        "",
-        f"Repo: {repo}",
-        f"Prompt marker: {marker_path}",
+        "Default is no. Say yes to start the review. Say no, or stop again with the same diff, to skip it.",
     ])
     system_message = "\n".join([
-        "IMPORTANT: Agentic Code Reviewer detected changed files.",
-        "Ask the user whether to run a code review before ending this session.",
+        "Before you wrap up, ask the user: Do you want me to run the Agentic Code Reviewer now?",
+        "Context: changed files are present in this repo.",
         "",
-        "If the user says yes, run this exact command:",
+        "Only if the user says yes, run this exact command:",
         review_cmd,
         "",
-        "If the user says no, stop again. ACR will allow the same diff to exit.",
-        f"Repo: {repo}",
-        f"Prompt marker: {marker_path}",
+        "If the user says no, stop again with no further action. ACR will skip this same diff.",
     ])
     print(json.dumps({
         "decision": "block",

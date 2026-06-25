@@ -10,7 +10,7 @@
       "name": "agentic-code-reviewer",
       "description": "Backgrounded agentic code reviewer: 5 specialized reviewer processes plus a Synthesizer pass, review UI decisions, and deterministic resume flow",
       "source": "./",
-      "version": "1.4.15",
+      "version": "1.4.16",
       "category": "code-review",
       "tags": ["code-review", "agents", "git-diff", "multi-platform"]
     }

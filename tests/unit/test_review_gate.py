@@ -199,6 +199,52 @@ class ReviewGateTest(unittest.TestCase):
             self.assertNotIn("accept_fix", system_message)
             self.assertNotIn("create_follow_up_task", system_message)
 
+    def test_emit_prompt_uses_human_confirmation_text(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="acr prompt ") as tmp:
+            root = Path(tmp)
+            repo = root / "repo with spaces"
+            plugin_root = root / "plugin root with spaces"
+            session_id = "session-with-changes"
+            diff_sha = "abc123"
+            diff_text = "diff --git a/src/app.py b/src/app.py\n"
+            marker_path = review_gate.prompt_marker_path(repo, session_id)
+
+            try:
+                payload = self.capture_json_stdout(
+                    review_gate.emit_prompt,
+                    repo,
+                    plugin_root,
+                    session_id,
+                    diff_sha,
+                    diff_text,
+                )
+            finally:
+                try:
+                    marker_path.unlink()
+                except FileNotFoundError:
+                    pass
+
+            review_script = plugin_root / "scripts" / "orchestrator.sh"
+            expected_cmd = f"bash {shlex.quote(str(review_script))} --repo {shlex.quote(str(repo))}"
+
+            self.assertEqual(payload["decision"], "block")
+            reason = payload["reason"]
+            self.assertTrue(reason.startswith("Do you want me to run the Agentic Code Reviewer now?"), reason[:80])
+            self.assertIn("I found changed files in this repo.", reason)
+            self.assertIn("Default is no.", reason)
+            self.assertNotIn("IMPORTANT", reason)
+            self.assertNotIn(expected_cmd, reason)
+            self.assertNotIn(str(repo), reason)
+            self.assertNotIn("Prompt marker", reason)
+
+            system_message = payload["systemMessage"]
+            self.assertIn("Before you wrap up, ask the user", system_message)
+            self.assertIn("Only if the user says yes, run this exact command:", system_message)
+            self.assertIn(expected_cmd, system_message)
+            self.assertIn("ACR will skip this same diff.", system_message)
+            self.assertNotIn("IMPORTANT", system_message)
+            self.assertNotIn("Prompt marker", system_message)
+
     def test_emit_launch_failure_reason_contains_manual_recovery_instructions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="acr launch failure ") as tmp:
             root = Path(tmp)
@@ -652,7 +698,8 @@ class ReviewGateTest(unittest.TestCase):
                     self.assertEqual(result, 0)
                     payload = json.loads(stdout.getvalue())
                     self.assertEqual(payload["decision"], "block")
-                    self.assertIn("Default: no", payload["reason"])
+                    self.assertIn("Default is no.", payload["reason"])
+                    self.assertIn("Do you want me to run the Agentic Code Reviewer now?", payload["reason"])
                     self.assertTrue(marker.exists())
 
                     stdout = io.StringIO()
