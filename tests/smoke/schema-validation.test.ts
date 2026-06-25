@@ -25,6 +25,15 @@ function loadJson(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+describe('plugin hooks manifest', () => {
+  test('has only hooks as a top-level field', () => {
+    const data = loadJson('hooks/hooks.json') as Record<string, unknown>;
+
+    expect(Object.keys(data).sort()).toEqual(['hooks']);
+    expect(data.hooks).toBeDefined();
+  });
+});
+
 // ---- validateRawReviewerResult ----
 
 describe('validateRawReviewerResult — known-bad fixtures', () => {
