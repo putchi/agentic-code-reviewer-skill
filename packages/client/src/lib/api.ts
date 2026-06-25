@@ -2,6 +2,7 @@ import type { ReviewData, DecisionPayload } from '@acr/shared';
 export interface Settings {
   autoCloseMs: number;
   firstRunDone: boolean;
+  stopHookMode: 'prompt' | 'auto' | 'disabled';
   platform: string;
   provider: 'claude' | 'codex';
   providerLabel: string;

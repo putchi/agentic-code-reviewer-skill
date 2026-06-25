@@ -22,6 +22,7 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
 
   const branch = data?.branch ?? '';
   const date = data?.timestamp?.slice(0, 10) ?? '';
+  const title = data?.repoLabel ? `Agentic Code Review - ${data.repoLabel}` : 'Agentic Code Review';
   const runMeta = data?.runId ? `run ${data.runId}` : branch;
   const status = data?.synthesisStatus ? `status ${data.synthesisStatus}` : date;
 
@@ -35,7 +36,7 @@ export default function Header({ data, onMenu, globalComment = '', onGlobalChang
           </svg>
         </div>
         <div className="hdr__title-wrap">
-          <div className="hdr__title">Agentic Code Review</div>
+          <div className="hdr__title" title={title}>{title}</div>
           <div className="hdr__meta">
             {/* git-branch icon */}
             <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">

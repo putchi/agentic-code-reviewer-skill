@@ -23,6 +23,30 @@ SPEC.loader.exec_module(review_gate)
 
 
 class ReviewGateTest(unittest.TestCase):
+    @contextlib.contextmanager
+    def stop_hook_mode(self, mode: str):
+        original = review_gate.os.environ.get("ACR_STOP_HOOK_MODE")
+        try:
+            review_gate.os.environ["ACR_STOP_HOOK_MODE"] = mode
+            yield
+        finally:
+            if original is None:
+                review_gate.os.environ.pop("ACR_STOP_HOOK_MODE", None)
+            else:
+                review_gate.os.environ["ACR_STOP_HOOK_MODE"] = original
+
+    @contextlib.contextmanager
+    def settings_dir(self, path: Path):
+        original = review_gate.os.environ.get("ACR_SETTINGS_DIR")
+        try:
+            review_gate.os.environ["ACR_SETTINGS_DIR"] = str(path)
+            yield
+        finally:
+            if original is None:
+                review_gate.os.environ.pop("ACR_SETTINGS_DIR", None)
+            else:
+                review_gate.os.environ["ACR_SETTINGS_DIR"] = original
+
     def write_run(self, run_dir: Path, status: str, run_id: str | None = None) -> None:
         (run_dir / "run.json").write_text(json.dumps({
             "run_id": run_id or run_dir.name,
@@ -142,7 +166,7 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(payload["decision"], "block")
             reason = payload["reason"]
-            self.assertTrue(reason.startswith("ACR review complete —"), reason[:80])
+            self.assertTrue(reason.startswith("ACR review complete:"), reason[:80])
             self.assertIn(expected_cmd, reason)
             self.assertIn(f"Script: {resume_script}", reason)
             self.assertIn(f"Repo: {repo}", reason)
@@ -465,7 +489,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = fake_launch_review
 
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({"session_id": "disabled-stop-hook-test", "cwd": str(repo)}),
                         plugin_root,
@@ -521,7 +545,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = fake_launch_review
 
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({"session_id": "missing-config-test", "cwd": str(repo)}),
                         plugin_root,
@@ -539,6 +563,243 @@ class ReviewGateTest(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(stdout.getvalue(), '')
             self.assertEqual(seen_diff_repos, [repo])
+
+    def test_missing_global_stop_hook_mode_defaults_to_prompt_for_existing_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin_root = root / "plugin"
+            settings_dir = root / "settings"
+            plugin_root.mkdir()
+            settings_dir.mkdir()
+            (settings_dir / "settings.json").write_text(
+                json.dumps({"autoCloseMs": 0, "firstRunDone": True}),
+                encoding="utf-8",
+            )
+
+            with self.settings_dir(settings_dir):
+                mode = review_gate.resolve_stop_hook_mode(plugin_root, None)
+
+            self.assertEqual(mode, "prompt")
+
+    def test_stop_hook_mode_env_override_wins_over_settings_and_repo_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin_root = root / "plugin"
+            settings_dir = root / "settings"
+            plugin_root.mkdir()
+            settings_dir.mkdir()
+            (settings_dir / "settings.json").write_text(
+                json.dumps({"stopHookMode": "disabled"}),
+                encoding="utf-8",
+            )
+
+            with self.settings_dir(settings_dir), self.stop_hook_mode("auto"):
+                mode = review_gate.resolve_stop_hook_mode(plugin_root, {"stopHookMode": "prompt"})
+
+            self.assertEqual(mode, "auto")
+
+    def test_prompt_mode_blocks_once_then_allows_same_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            settings_dir = root / "settings"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+            settings_dir.mkdir()
+            diff = "diff --git a/file b/file\n+changed\n"
+            diff_sha = review_gate.diff_sha256(diff)
+            session_id = "prompt-mode-test"
+            marker = review_gate.prompt_marker_path(repo, session_id)
+            session_done = review_gate.done_file(session_id)
+            for path in (marker, session_done):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_launch_review = review_gate.launch_review
+            try:
+                def fake_git_root(cwd: Path) -> Path:
+                    return repo
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    self.assertEqual(repo_arg, repo)
+                    return diff
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("prompt mode must not launch a review")
+
+                review_gate.git_root = fake_git_root
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.launch_review = fake_launch_review
+
+                with self.settings_dir(settings_dir):
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
+                            json.dumps({"session_id": session_id, "cwd": str(repo)}),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    payload = json.loads(stdout.getvalue())
+                    self.assertEqual(payload["decision"], "block")
+                    self.assertIn("Default: no", payload["reason"])
+                    self.assertTrue(marker.exists())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
+                            json.dumps({"session_id": session_id, "cwd": str(repo)}),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertEqual((review_gate.read_json(session_done) or {}).get("diff_sha256"), diff_sha)
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.launch_review = original_launch_review
+                for path in (marker, session_done):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+
+    def test_disabled_stop_hook_mode_exits_without_launching_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_launch_review = review_gate.launch_review
+            try:
+                review_gate.git_root = lambda cwd: repo
+                review_gate.current_review_diff = lambda repo_arg: "diff --git a/file b/file\n+changed\n"
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("disabled mode must not launch a review")
+
+                review_gate.launch_review = fake_launch_review
+                stdout = io.StringIO()
+                with self.stop_hook_mode("disabled"), contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": "disabled-mode-test", "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.launch_review = original_launch_review
+
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "")
+
+    def test_auto_mode_marks_stale_run_and_allows_when_diff_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+            first_diff = "diff --git a/file b/file\n+before\n"
+            second_diff = "diff --git a/file b/file\n+after\n"
+            first_sha = review_gate.diff_sha256(first_diff)
+            decisions = {"findings": {"f1": {"action": "ask_claude_to_implement"}}}
+            run_dir = self.write_review_run(repo, "20260625T100000Z-stale", first_sha, decisions)
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_newest_matching_run = review_gate.newest_matching_run
+            original_launch_review = review_gate.launch_review
+            try:
+                diffs = [first_diff, second_diff]
+                review_gate.git_root = lambda cwd: repo
+
+                def fake_current_review_diff(repo_arg: Path) -> str:
+                    self.assertEqual(repo_arg, repo)
+                    return diffs.pop(0)
+
+                def fake_newest_matching_run(repo_arg: Path, expected_diff_sha: str) -> Path:
+                    self.assertEqual(expected_diff_sha, first_sha)
+                    return run_dir
+
+                def fake_launch_review(*args, **kwargs) -> None:
+                    self.fail("matching run should be reused")
+
+                review_gate.current_review_diff = fake_current_review_diff
+                review_gate.newest_matching_run = fake_newest_matching_run
+                review_gate.launch_review = fake_launch_review
+                stdout = io.StringIO()
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({"session_id": "stale-run-test", "cwd": str(repo)}),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.newest_matching_run = original_newest_matching_run
+                review_gate.launch_review = original_launch_review
+
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "")
+            stale = review_gate.read_json(run_dir / review_gate.STALE_REVIEW_FILE)
+            self.assertEqual((stale or {}).get("reason"), "diff_changed_during_review")
+
+    def test_launch_review_fast_hook_sets_review_budget_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            repo.mkdir()
+            plugin_root.mkdir()
+            original_run_capture = review_gate.run_capture
+            try:
+                def fake_run_capture(args, cwd, env=None, **kwargs):
+                    self.assertEqual(cwd, repo)
+                    self.assertIsNotNone(env)
+                    assert env is not None
+                    self.assertEqual(env.get("ACR_HOOK_FAST"), "1")
+                    self.assertEqual(env.get("ACR_REVIEW_TIMEOUT_SECONDS"), review_gate.HOOK_REVIEW_TIMEOUT_SECONDS)
+                    self.assertEqual(env.get("ACR_SYNTHESIS_TIMEOUT_SECONDS"), review_gate.HOOK_SYNTHESIS_TIMEOUT_SECONDS)
+                    self.assertEqual(env.get("ACR_REVIEWER_MAX_RETRIES"), "0")
+                    return subprocess.CompletedProcess(args, 0, stdout="Review 20260625T110000Z-fast started.\n", stderr="")
+
+                review_gate.run_capture = fake_run_capture
+                run_dir = review_gate.launch_review(plugin_root, repo, fast_hook=True)
+            finally:
+                review_gate.run_capture = original_run_capture
+
+            self.assertEqual(run_dir, repo / ".claude" / "review-runs" / "20260625T110000Z-fast")
 
     def test_gate_error_emits_exactly_one_json_object(self) -> None:
         """Regression: GateError path must emit exactly one JSON object.
@@ -581,7 +842,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.launch_review = fake_launch_review
 
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({"session_id": "gate-error-test", "cwd": str(repo)}),
                         plugin_root,
@@ -835,7 +1096,7 @@ class ReviewGateTest(unittest.TestCase):
                 except FileNotFoundError:
                     pass
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({"session_id": without_marker_session, "cwd": str(repo)}),
                         plugin_root,
@@ -1094,7 +1355,7 @@ class ReviewGateTest(unittest.TestCase):
                 review_gate.newest_matching_run = fake_newest_matching_run
                 review_gate.launch_review = fake_launch_review
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({
                             "hook_event_name": "Stop",

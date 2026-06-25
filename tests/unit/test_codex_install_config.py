@@ -33,6 +33,10 @@ class CodexInstallConfigTest(unittest.TestCase):
                 stop_hooks[0]["hooks"][0]["command"],
                 codex_install_config.DEFAULT_HOOK_COMMAND,
             )
+            self.assertEqual(
+                stop_hooks[0]["hooks"][0]["timeout"],
+                codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
+            )
             self.assertIn("[features]\nhooks = true\n", config_file.read_text(encoding="utf-8"))
 
     def test_existing_stop_hooks_are_preserved_and_rerun_is_idempotent(self) -> None:
@@ -70,6 +74,37 @@ class CodexInstallConfigTest(unittest.TestCase):
             self.assertEqual(commands.count(codex_install_config.DEFAULT_HOOK_COMMAND), 1)
             self.assertIn("/usr/local/bin/existing-hook", commands)
             self.assertIn("UserPromptSubmit", data["hooks"])
+
+    def test_existing_acr_stop_hook_timeout_is_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hooks_file = root / "hooks.json"
+            config_file = root / "config.toml"
+            hooks_file.write_text(json.dumps({
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": codex_install_config.DEFAULT_HOOK_COMMAND,
+                                    "timeout": 345600,
+                                }
+                            ]
+                        }
+                    ],
+                }
+            }), encoding="utf-8")
+            config_file.write_text("[features]\nhooks = true\n", encoding="utf-8")
+
+            result = codex_install_config.configure_codex_hooks(hooks_file, config_file)
+
+            self.assertTrue(result["hook_added"])
+            data = json.loads(hooks_file.read_text(encoding="utf-8"))
+            self.assertEqual(
+                data["hooks"]["Stop"][0]["hooks"][0]["timeout"],
+                codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
+            )
 
     def test_features_hooks_false_is_changed_without_dropping_other_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

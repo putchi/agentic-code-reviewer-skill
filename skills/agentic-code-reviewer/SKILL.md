@@ -40,14 +40,17 @@ starts `scripts/orchestrator.py` with `nohup`, then prints a compact status
 line every 20 seconds until the review UI is ready. Set
 `ACR_STATUS_POLL=0` to return immediately without polling.
 
-In Claude Code and in Codex installs with hooks enabled, the Stop hook can also
-launch this same background review automatically. Claude Code reads the hook
-from the plugin manifest; Codex reads the user-level entry installed in
-`~/.codex/hooks.json`. `hooks/code-review-gate.sh` delegates to
-`scripts/review-gate.py`, which uses hook JSON `cwd` when present, hashes the
-current reviewable diff, reuses the newest matching run when possible,
-otherwise launches the orchestrator, then waits for the Web UI final action.
-Codex may require reviewing or trusting the hook through `/hooks`.
+In Claude Code and in Codex installs with hooks enabled, the Stop hook is
+controlled by `stopHookMode` in
+`~/.claude/agentic-code-reviewer/settings.json`. The default is `prompt`,
+including upgraded installs whose older settings files do not have this key.
+Claude Code reads the hook from the plugin manifest; Codex reads the user-level
+entry installed in `~/.codex/hooks.json`. `hooks/code-review-gate.sh`
+delegates to `scripts/review-gate.py`, which uses hook JSON `cwd` when present,
+hashes the current reviewable diff, and then follows the resolved mode:
+`prompt` blocks once with the exact review command, `disabled` exits silently,
+and `auto` launches or reuses a fast review with a 3 minute hook budget. Codex
+may require reviewing or trusting the hook through `/hooks`.
 
 Claude Code named subagents and Codex `spawn_agent` are not used as the review
 execution primitive. The five reviewers run as independent provider subprocesses
@@ -98,11 +101,12 @@ partial evidence.
 ## Continuation
 
 When the Stop hook launched or is watching the run, server auto-resume is
-disabled and the hook owns continuation. Implement / Done / confirmed Dismiss
-write final decisions; Save decisions is non-final and keeps the hook waiting.
-If any decision is actionable, the hook wakes the host agent with instructions
-to run the resume reader and act on the result. If all findings are ignored or
-there is no work, the hook allows the session to finish.
+disabled and the hook owns continuation. In `auto` mode, Implement / Done /
+confirmed Dismiss write final decisions; Save decisions is non-final. If any
+decision is actionable and the diff hash still matches, the hook wakes the host
+agent with instructions to run the resume reader and act on the result. If the
+diff changed while review was running, the hook marks the run stale and allows
+the session to finish without using outdated findings.
 
 Manual fallback:
 

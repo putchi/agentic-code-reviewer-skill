@@ -4,6 +4,7 @@ import { fetchSettings, patchSettings, resetSettings as resetSettingsRequest, ty
 const DEFAULTS: Settings = {
   autoCloseMs: 0,
   firstRunDone: false,
+  stopHookMode: 'prompt',
   platform: '',
   provider: 'claude',
   providerLabel: 'Claude',

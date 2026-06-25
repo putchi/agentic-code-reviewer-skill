@@ -7,13 +7,19 @@ import { copyFileSync, unlinkSync, existsSync, renameSync, mkdtempSync, rmSync, 
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { compareSemver, handleVersionCheck, getInstalledVersion } from '../../packages/server/src/routes/version';
-import { readFindings } from '../../packages/server/src/findings';
+import { readFindings, repoLabelFromPath, repoLabelFromRemoteUrl } from '../../packages/server/src/findings';
 
 const DEFAULT_FX = '/tmp/claude-code-review-unknown.json';
 copyFileSync('tests/fixtures/sample-review.json', DEFAULT_FX);
 afterAll(() => { try { unlinkSync(DEFAULT_FX); } catch {} });
 
 describe('handleReview', () => {
+  test('repo label helpers prefer owner/repo format', () => {
+    expect(repoLabelFromRemoteUrl('git@github.com:putchi/agentic-code-reviewer-skill.git')).toBe('putchi/agentic-code-reviewer-skill');
+    expect(repoLabelFromRemoteUrl('https://github.com/putchi/agentic-code-reviewer-skill.git')).toBe('putchi/agentic-code-reviewer-skill');
+    expect(repoLabelFromPath('/Users/AlexRa/Projects/Personal/agentic-code-reviewer-skill')).toBe('Personal/agentic-code-reviewer-skill');
+  });
+
   test('returns parsed findings from file', async () => {
     const { handleReview } = await import('../../packages/server/src/routes/review');
     const data = await handleReview().json();
@@ -28,12 +34,14 @@ describe('handleReview', () => {
   });
   test('readReviewFromRunDir converts synthesis.json to review payload', async () => {
     const runDir = mkdtempSync(resolve(tmpdir(), 'acr-run-'));
+    const repoDir = resolve(runDir, 'owner', 'repo-name');
     try {
       mkdirSync(resolve(runDir, 'agents'));
+      mkdirSync(repoDir, { recursive: true });
       writeFileSync(resolve(runDir, 'run.json'), JSON.stringify({ run_id: 'r1', repo: process.cwd(), status: 'awaiting_decisions' }));
       writeFileSync(resolve(runDir, 'context.json'), JSON.stringify({
         run_id: 'r1',
-        repo: process.cwd(),
+        repo: repoDir,
         branch: 'main',
         timestamp: '2026-05-27T00:00:00Z',
         files: [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-old\n+new' }],
@@ -91,6 +99,7 @@ describe('handleReview', () => {
       expect(data.runId).toBe('r1');
       expect(data.findings).toHaveLength(1);
       expect(data.files?.[0].path).toBe('src/a.ts');
+      expect(data.repoLabel).toBe('owner/repo-name');
       expect(data.resumeCommand).toBe('/review-resume r1');
       expect(data.synthesisStatus).toBe('awaiting_decisions');
       expect(data.reviewerResults?.map(r => r.agent)).toContain('security-scanner');
@@ -99,6 +108,34 @@ describe('handleReview', () => {
     } finally {
       rmSync(runDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('decision done sentinel', () => {
+  test('buildDoneSentinel includes repo and diff hash for review-gate compatibility', async () => {
+    const { buildDoneSentinel } = await import('../../packages/server/src/routes/decisions');
+    const sentinel = buildDoneSentinel(
+      {
+        run_id: 'r1',
+        decided_at: '2026-06-25T00:00:00Z',
+        global_comment: '',
+        findings: {},
+        line_annotations: {},
+      },
+      {
+        run_id: 'r1',
+        repo: '/repo/path',
+        branch: 'main',
+        timestamp: '2026-06-25T00:00:00Z',
+        diff_sha256: 'abc123',
+        files: [],
+      },
+    );
+
+    expect(sentinel.repo).toBe('/repo/path');
+    expect(sentinel.run_id).toBe('r1');
+    expect(sentinel.diff_sha256).toBe('abc123');
+    expect(sentinel.reason).toBe('server_final_decision');
   });
 });
 

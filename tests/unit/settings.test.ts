@@ -39,6 +39,7 @@ describe('loadSettings', () => {
     expect(s.chatModel).toBe('sonnet');
     expect(s.chatModelLabel).toBe('Claude Sonnet');
     expect(s.firstRunDone).toBe(false);
+    expect(s.stopHookMode).toBe('prompt');
   });
 
   test('migrates legacy chatModel values to read-only runtime metadata', () => {
@@ -47,6 +48,7 @@ describe('loadSettings', () => {
     expect(s.chatModel).toBe('sonnet');
     expect(s.autoCloseMs).toBe(0);
     expect(s.firstRunDone).toBe(false);
+    expect(s.stopHookMode).toBe('prompt');
   });
 
   test('returns defaults when settings file has invalid JSON', () => {
@@ -54,6 +56,7 @@ describe('loadSettings', () => {
     const s = loadSettings();
     expect(s.autoCloseMs).toBe(0);
     expect(s.chatModel).toBe('sonnet');
+    expect(s.stopHookMode).toBe('prompt');
   });
 });
 
@@ -72,11 +75,20 @@ describe('saveSettings', () => {
     expect(s.chatModel).toBe('sonnet');
     expect(s.autoCloseMs).toBe(5000);
     expect(s.firstRunDone).toBe(false);
+    expect(s.stopHookMode).toBe('prompt');
   });
 
   test('returns updated settings', () => {
     const result = saveSettings({ firstRunDone: true });
     expect(result.firstRunDone).toBe(true);
+  });
+
+  test('persists stop hook mode and defaults missing legacy values to prompt', () => {
+    writeSettings({ autoCloseMs: 1000, firstRunDone: true });
+    expect(loadSettings().stopHookMode).toBe('prompt');
+
+    saveSettings({ stopHookMode: 'disabled' });
+    expect(loadSettings().stopHookMode).toBe('disabled');
   });
 
   test('firstRunDone persists across load/save cycle', () => {
@@ -85,13 +97,15 @@ describe('saveSettings', () => {
   });
 
   test('resetSettings resets user preferences while preserving onboarding state', () => {
-    saveSettings({ autoCloseMs: 5000, firstRunDone: true });
+    saveSettings({ autoCloseMs: 5000, firstRunDone: true, stopHookMode: 'auto' });
     const result = resetSettings();
     expect(result.autoCloseMs).toBe(0);
     expect(result.firstRunDone).toBe(true);
+    expect(result.stopHookMode).toBe('prompt');
     expect(result.provider).toBe('claude');
     expect(loadSettings().autoCloseMs).toBe(0);
     expect(loadSettings().firstRunDone).toBe(true);
+    expect(loadSettings().stopHookMode).toBe('prompt');
   });
 });
 
@@ -118,11 +132,18 @@ describe('settings response shape', () => {
     expect('providerLabel' in s).toBe(true);
     expect('modelRole' in s).toBe(true);
     expect('firstRunDone' in s).toBe(true);
+    expect('stopHookMode' in s).toBe(true);
   });
 
   test('saveSettings ignores readonly chatModel patches', () => {
     const result = saveSettings({ chatModel: 'claude-haiku-4-5-20251001' });
     expect(result.chatModel).toBe('sonnet');
     expect(loadSettings().chatModel).toBe('sonnet');
+  });
+
+  test('saveSettings ignores invalid stopHookMode patches', () => {
+    const result = saveSettings({ stopHookMode: 'invalid' as any });
+    expect(result.stopHookMode).toBe('prompt');
+    expect(loadSettings().stopHookMode).toBe('prompt');
   });
 });

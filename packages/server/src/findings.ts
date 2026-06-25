@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { REVIEW_AGENTS, validateRawReviewerResult, validateSynthesisResult } from '@acr/shared';
 import type { DecisionsFile, FileEntry, LineAnnotation, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
 import { findingsFile, runDir, saveDir, sessionId } from './config';
@@ -51,6 +52,38 @@ function readRunFiles(contextPath: string | null, diffPath: string | null): File
 function readRunStatus(runPath: string | null): string | undefined {
   const run = parseJsonFile<{ status?: string }>(runPath);
   return run?.status;
+}
+
+export function repoLabelFromRemoteUrl(remoteUrl: string): string {
+  const trimmed = remoteUrl.trim();
+  if (!trimmed) return '';
+  const withoutGit = trimmed.replace(/\.git$/, '');
+  const match = /[:/]([^/:]+\/[^/]+)$/.exec(withoutGit);
+  return match?.[1] || '';
+}
+
+export function repoLabelFromPath(repoPath: string): string {
+  if (!repoPath.trim()) return '';
+  const repo = basename(repoPath);
+  const owner = basename(dirname(repoPath));
+  return owner && repo ? `${owner}/${repo}` : repo;
+}
+
+function readOriginRemote(repoPath: string): string {
+  if (!repoPath.trim()) return '';
+  try {
+    return execFileSync('git', ['-C', repoPath, 'config', '--get', 'remote.origin.url'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 1000,
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+export function resolveRepoLabel(repoPath: string): string {
+  return repoLabelFromRemoteUrl(readOriginRemote(repoPath)) || repoLabelFromPath(repoPath);
 }
 
 function normalizeReviewerResult(raw: RawReviewerResult): ReviewerResult {
@@ -134,6 +167,7 @@ export function readReviewFromRunDir(dir: string): ReviewData | null {
     timestamp: context?.timestamp || new Date().toISOString(),
     branch: context?.branch || '',
     sessionId,
+    repoLabel: resolveRepoLabel(context?.repo || ''),
     runId: synthesis.run_id,
     synthesisStatus: readRunStatus(runPath),
     resumeCommand: `/review-resume ${synthesis.run_id}`,

@@ -9,7 +9,7 @@ from typing import Any
 
 
 DEFAULT_HOOK_COMMAND = 'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"'
-DEFAULT_HOOK_TIMEOUT_SECONDS = 345600
+DEFAULT_HOOK_TIMEOUT_SECONDS = 210
 
 
 def load_hooks_json(path: Path) -> dict[str, Any]:
@@ -58,8 +58,22 @@ def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMM
     if not isinstance(stop, list):
         raise ValueError("hooks.json field 'hooks.Stop' must be an array")
 
-    if command in stop_hook_commands(data):
-        return False
+    changed = False
+    found = False
+    for entry in stop:
+        if not isinstance(entry, dict):
+            continue
+        for hook in entry.get("hooks", []):
+            if not isinstance(hook, dict) or hook.get("type") != "command":
+                continue
+            if hook.get("command") != command:
+                continue
+            found = True
+            if hook.get("timeout") != DEFAULT_HOOK_TIMEOUT_SECONDS:
+                hook["timeout"] = DEFAULT_HOOK_TIMEOUT_SECONDS
+                changed = True
+    if found:
+        return changed
 
     stop.append({
         "hooks": [

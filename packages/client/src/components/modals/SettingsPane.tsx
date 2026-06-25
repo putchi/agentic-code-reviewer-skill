@@ -12,6 +12,27 @@ interface Props {
   onHelp: () => void;
 }
 
+type StopHookMode = Settings['stopHookMode'];
+
+const STOP_HOOK_MODES: Array<{ id: StopHookMode; title: string; sub: string; tag?: string }> = [
+  {
+    id: 'prompt',
+    title: 'Ask before review',
+    sub: 'Block once with review commands, then allow the same diff to exit.',
+    tag: 'default',
+  },
+  {
+    id: 'auto',
+    title: 'Run automatically',
+    sub: 'Run a fast review on exit with a 3 minute budget.',
+  },
+  {
+    id: 'disabled',
+    title: 'Disabled',
+    sub: 'Never start review from the Stop hook. Manual reviews still work.',
+  },
+];
+
 export default function SettingsPane({ open, settings, onUpdate, onReset, onClose, onHelp }: Props) {
   const [version, setVersion] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -74,6 +95,30 @@ export default function SettingsPane({ open, settings, onUpdate, onReset, onClos
                 </div>
                 <div className="radiocard__tag">active</div>
               </div>
+            </div>
+          </section>
+
+          <div className="settings-drawer__divider" />
+
+          <section className="settings-drawer__section">
+            <div className="modal__section-label">Session-exit hook</div>
+            <div className="settings-drawer__radiogroup">
+              {STOP_HOOK_MODES.map(mode => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className="radiocard"
+                  data-checked={settings.stopHookMode === mode.id ? true : undefined}
+                  onClick={() => onUpdate({ stopHookMode: mode.id })}
+                >
+                  <div className="radiocard__radio" />
+                  <div className="radiocard__content">
+                    <div className="radiocard__title">{mode.title}</div>
+                    <div className="radiocard__sub">{mode.sub}</div>
+                  </div>
+                  {mode.tag && <div className="radiocard__tag radiocard__tag--reco">{mode.tag}</div>}
+                </button>
+              ))}
             </div>
           </section>
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stop hook: launches/reuses the review UI, waits for the user's final UI
-# action, then returns the hook decision that wakes the host agent when work remains.
+# Stop hook: prompts, skips, or launches a fast review based on user settings.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"

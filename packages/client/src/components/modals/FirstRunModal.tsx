@@ -9,11 +9,33 @@ interface Props {
   onReset: () => Promise<Settings> | Settings | void;
 }
 
+type StopHookMode = Settings['stopHookMode'];
+
+const STOP_HOOK_MODES: Array<{ id: StopHookMode; title: string; sub: string; tag?: string }> = [
+  {
+    id: 'prompt',
+    title: 'Ask before review',
+    sub: 'Block once with review commands, then allow the same diff to exit.',
+    tag: 'default',
+  },
+  {
+    id: 'auto',
+    title: 'Run automatically',
+    sub: 'Run a fast review on exit with a 3 minute budget.',
+  },
+  {
+    id: 'disabled',
+    title: 'Disabled',
+    sub: 'Never start review from the Stop hook. Manual reviews still work.',
+  },
+];
+
 export default function FirstRunModal({ settings, onSave, onReset }: Props) {
   const [autoCloseEnabled, setAutoCloseEnabled] = useState(settings.autoCloseMs > 0);
   const [autoCloseSec, setAutoCloseSec] = useState(
     Math.max(Math.round(settings.autoCloseMs / 1000) || 3, 1)
   );
+  const [stopHookMode, setStopHookMode] = useState<StopHookMode>(settings.stopHookMode || 'prompt');
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -32,6 +54,7 @@ export default function FirstRunModal({ settings, onSave, onReset }: Props) {
   function handleSave() {
     void persist({
       autoCloseMs: autoCloseEnabled ? autoCloseSec * 1000 : 0,
+      stopHookMode,
       firstRunDone: true,
     });
   }
@@ -44,6 +67,7 @@ export default function FirstRunModal({ settings, onSave, onReset }: Props) {
     if (resetting || saving) return;
     setAutoCloseEnabled(false);
     setAutoCloseSec(3);
+    setStopHookMode('prompt');
     setResetting(true);
     try {
       await onReset();
@@ -82,6 +106,28 @@ export default function FirstRunModal({ settings, onSave, onReset }: Props) {
                   </div>
                   <div className="radiocard__tag">active</div>
                 </div>
+              </div>
+            </section>
+
+            <section>
+              <div className="modal__section-label">Session-exit hook</div>
+              <div className="modal__radiogroup">
+                {STOP_HOOK_MODES.map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className="radiocard"
+                    data-checked={stopHookMode === mode.id ? true : undefined}
+                    onClick={() => setStopHookMode(mode.id)}
+                  >
+                    <div className="radiocard__radio" />
+                    <div className="radiocard__content">
+                      <div className="radiocard__title">{mode.title}</div>
+                      <div className="radiocard__sub">{mode.sub}</div>
+                    </div>
+                    {mode.tag && <div className="radiocard__tag radiocard__tag--reco">{mode.tag}</div>}
+                  </button>
+                ))}
               </div>
             </section>
 

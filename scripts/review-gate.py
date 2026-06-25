@@ -54,10 +54,19 @@ UI_READY_STATUSES = {"awaiting_decisions", "synthesis_failed", "decisions_saved"
 NOTHING_TO_DECIDE_STATUSES = {"no_changes", "diff_too_small", "no_findings"}
 FINAL_ROUTE_ACTIONS = {"implement", "done"}
 DEFAULT_GATE_STATUS_INTERVAL_SECONDS = 10.0
+DEFAULT_GATE_MAX_SECONDS = 180.0
+HOOK_REVIEW_TIMEOUT_SECONDS = "120"
+HOOK_SYNTHESIS_TIMEOUT_SECONDS = "45"
 POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
+PROMPT_MARKER_PREFIX = "claude-code-review-prompt-"
 POST_RESUME_SKIP_FILE = "review-gate-post-resume-skip.json"
+STALE_REVIEW_FILE = "review-gate-stale.json"
 PROJECT_CONFIG_FILE = ".acr.json"
 DISABLE_STOP_HOOK_KEY = "disableStopHook"
+STOP_HOOK_MODE_KEY = "stopHookMode"
+DEFAULT_STOP_HOOK_MODE = "prompt"
+STOP_HOOK_MODES = {"prompt", "auto", "disabled"}
+SETTINGS_FILENAME = "settings.json"
 
 
 class GateError(RuntimeError):
@@ -108,6 +117,59 @@ def project_config_disables_stop_hook(repo: Path) -> bool:
     return config is not None and config.get(DISABLE_STOP_HOOK_KEY) is True
 
 
+def normalize_stop_hook_mode(value: Any) -> str | None:
+    return value if isinstance(value, str) and value in STOP_HOOK_MODES else None
+
+
+def project_config_stop_hook_mode(config: dict[str, Any] | None) -> str | None:
+    if not config:
+        return None
+    return normalize_stop_hook_mode(config.get(STOP_HOOK_MODE_KEY))
+
+
+def resolve_settings_paths(plugin_root: Path) -> list[Path]:
+    if os.environ.get("ACR_SETTINGS_FILE"):
+        return [Path(os.environ["ACR_SETTINGS_FILE"]).expanduser()]
+    if os.environ.get("ACR_SETTINGS_DIR"):
+        return [Path(os.environ["ACR_SETTINGS_DIR"]).expanduser() / SETTINGS_FILENAME]
+
+    home = Path(os.environ.get("HOME") or os.environ.get("USERPROFILE") or "/tmp").expanduser()
+    candidates = [
+        home / ".claude" / "agentic-code-reviewer" / SETTINGS_FILENAME,
+        plugin_root / SETTINGS_FILENAME,
+    ]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
+def read_global_stop_hook_mode(plugin_root: Path) -> str | None:
+    for path in resolve_settings_paths(plugin_root):
+        data = read_json(path)
+        mode = normalize_stop_hook_mode(data.get(STOP_HOOK_MODE_KEY)) if data else None
+        if mode:
+            return mode
+    return None
+
+
+def resolve_stop_hook_mode(plugin_root: Path, project_config: dict[str, Any] | None) -> str:
+    env_mode = normalize_stop_hook_mode(os.environ.get("ACR_STOP_HOOK_MODE"))
+    if env_mode:
+        return env_mode
+    global_mode = read_global_stop_hook_mode(plugin_root)
+    if global_mode:
+        return global_mode
+    project_mode = project_config_stop_hook_mode(project_config)
+    if project_mode:
+        return project_mode
+    return DEFAULT_STOP_HOOK_MODE
+
+
 def write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -122,7 +184,7 @@ def touch(path: Path) -> None:
 
 def cleanup_stale_sentinels(tmp_dir: Path = Path("/tmp")) -> None:
     cutoff = time.time() - 86400
-    for pattern in ("claude-code-review-*.blocked", "claude-code-review-*.done"):
+    for pattern in ("claude-code-review-*.blocked", "claude-code-review-*.done", f"{PROMPT_MARKER_PREFIX}*.json"):
         for path in tmp_dir.glob(pattern):
             try:
                 if path.stat().st_mtime < cutoff:
@@ -180,8 +242,40 @@ def safe_marker_run_id(run_id: str) -> str:
     return safe or hashlib.sha256(run_id.encode("utf-8")).hexdigest()
 
 
+def safe_session_id(session_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_id.strip())
+    return safe or "unknown"
+
+
 def post_resume_marker_path(repo: Path, run_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
     return tmp_dir / f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_marker_run_id(run_id)}.json"
+
+
+def prompt_marker_path(repo: Path, session_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    return tmp_dir / f"{PROMPT_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_session_id(session_id)}.json"
+
+
+def prompt_marker_allows_stop(repo: Path, session_id: str, current_diff_sha: str, tmp_dir: Path = Path("/tmp")) -> bool:
+    marker = read_json(prompt_marker_path(repo, session_id, tmp_dir))
+    if not marker:
+        return False
+    return (
+        marker.get("repo") == str(repo)
+        and marker.get("session_id") == session_id
+        and marker.get("diff_sha256") == current_diff_sha
+    )
+
+
+def write_prompt_marker(repo: Path, session_id: str, current_diff_sha: str, current_diff: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    marker_path = prompt_marker_path(repo, session_id, tmp_dir)
+    write_json(marker_path, {
+        "repo": str(repo),
+        "session_id": session_id,
+        "diff_sha256": current_diff_sha,
+        "diff_paths": diff_file_paths(current_diff),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    return marker_path
 
 
 def post_resume_marker_paths(repo: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
@@ -377,6 +471,23 @@ def done_file(session_id: str) -> Path:
     return Path(f"/tmp/claude-code-review-{session_id}.done")
 
 
+def session_done_matches(path: Path, repo: Path, current_diff_sha: str) -> bool:
+    data = read_json(path)
+    if not data:
+        return False
+    return data.get("repo") == str(repo) and data.get("diff_sha256") == current_diff_sha
+
+
+def mark_session_done(path: Path, repo: Path, session_id: str, current_diff_sha: str, reason: str) -> None:
+    write_json(path, {
+        "repo": str(repo),
+        "session_id": session_id,
+        "diff_sha256": current_diff_sha,
+        "reason": reason,
+        "handled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+
+
 def load_route_action(run_id: str) -> str | None:
     data = read_json(decision_file(run_id))
     action = data.get("action") if data else None
@@ -522,11 +633,16 @@ def parse_run_id(output: str) -> str | None:
     return match.group(1) if match else None
 
 
-def launch_review(plugin_root: Path, repo: Path) -> Path:
+def launch_review(plugin_root: Path, repo: Path, fast_hook: bool = False) -> Path:
     env = os.environ.copy()
     env["CLAUDE_PLUGIN_ROOT"] = str(plugin_root)
     env["ACR_STATUS_POLL"] = "0"
     env["ACR_DISABLE_AUTO_RESUME"] = "1"
+    if fast_hook:
+        env["ACR_HOOK_FAST"] = "1"
+        env.setdefault("ACR_REVIEW_TIMEOUT_SECONDS", HOOK_REVIEW_TIMEOUT_SECONDS)
+        env.setdefault("ACR_SYNTHESIS_TIMEOUT_SECONDS", HOOK_SYNTHESIS_TIMEOUT_SECONDS)
+        env.setdefault("ACR_REVIEWER_MAX_RETRIES", "0")
     cmd = ["bash", str(plugin_root / "scripts" / "orchestrator.sh"), "--repo", str(repo)]
     try:
         result = run_capture(cmd, repo, env=env, check=True, timeout=60)
@@ -553,8 +669,10 @@ def wait_for_ui_or_terminal(
         if heartbeat:
             heartbeat.maybe_emit(run_dir)
         status = str(run.get("status") or "")
-        if status in UI_READY_STATUSES or (run_dir / "READY").exists():
+        if status in UI_READY_STATUSES:
             return run
+        if (run_dir / "READY").exists():
+            return read_json(run_json_path(run_dir)) or run
         time.sleep(poll_interval)
     raise GateError(f"Timed out waiting for review UI: {run_dir}")
 
@@ -600,7 +718,7 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
             if isinstance(decision, dict) and decision.get("action") in ACTIONABLE_ACTIONS
         )
     reason = "\n".join([
-        f"ACR review complete — {action_count} review decision(s) require host-agent follow-up.",
+        f"ACR review complete: {action_count} review decision(s) require host-agent follow-up.",
         "",
         "Run this exact command now:",
         resume_cmd,
@@ -633,6 +751,41 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
         "decision": "block",
         "reason": reason,
         "resume_artifact_path": str(artifact_path),
+        "systemMessage": system_message,
+    }))
+
+
+def emit_prompt(repo: Path, plugin_root: Path, session_id: str, current_diff_sha: str, current_diff: str) -> None:
+    review_script = plugin_root / "scripts" / "orchestrator.sh"
+    review_cmd = f"bash {shlex.quote(str(review_script))} --repo {shlex.quote(str(repo))}"
+    marker_path = write_prompt_marker(repo, session_id, current_diff_sha, current_diff)
+    reason = "\n".join([
+        "ACR detected changed files.",
+        "",
+        "Run a code review before ending this session?",
+        "",
+        "Default: no. Stop again with the same diff to exit without review.",
+        "",
+        "To run the review now:",
+        review_cmd,
+        "",
+        f"Repo: {repo}",
+        f"Prompt marker: {marker_path}",
+    ])
+    system_message = "\n".join([
+        "IMPORTANT: Agentic Code Reviewer detected changed files.",
+        "Ask the user whether to run a code review before ending this session.",
+        "",
+        "If the user says yes, run this exact command:",
+        review_cmd,
+        "",
+        "If the user says no, stop again. ACR will allow the same diff to exit.",
+        f"Repo: {repo}",
+        f"Prompt marker: {marker_path}",
+    ])
+    print(json.dumps({
+        "decision": "block",
+        "reason": reason,
         "systemMessage": system_message,
     }))
 
@@ -677,6 +830,18 @@ def emit_launch_failure(repo: Path | None, plugin_root: Path, message: str) -> N
             message,
         ]),
     }))
+
+
+def mark_stale_review(run_dir: Path, session_id: str, original_diff_sha: str, latest_diff_sha: str, latest_diff: str) -> None:
+    write_json(run_dir / STALE_REVIEW_FILE, {
+        "session_id": session_id,
+        "outcome": "allow",
+        "reason": "diff_changed_during_review",
+        "original_diff_sha256": original_diff_sha,
+        "latest_diff_sha256": latest_diff_sha,
+        "latest_diff_paths": diff_file_paths(latest_diff),
+        "handled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
 
 
 def parse_hook_event(raw: str) -> dict[str, Any]:
@@ -823,7 +988,8 @@ def run_gate(
     repo = git_root(cwd)
     if not repo:
         return allow_stop()
-    if project_config_disables_stop_hook(repo):
+    project_config = read_committed_project_config(repo)
+    if project_config is not None and project_config.get(DISABLE_STOP_HOOK_KEY) is True:
         return allow_stop()
 
     diff = current_review_diff(repo)
@@ -831,13 +997,23 @@ def run_gate(
         return allow_stop()
 
     cleanup_stale_sentinels()
+    current_hash = diff_sha256(diff)
     session_done = done_file(session_id)
-    if session_done.exists():
+    if session_done_matches(session_done, repo, current_hash):
         return allow_stop()
 
-    current_hash = diff_sha256(diff)
     if consume_post_resume_marker(repo, current_hash, diff, session_id):
-        touch(session_done)
+        mark_session_done(session_done, repo, session_id, current_hash, "post_resume_marker")
+        return allow_stop()
+
+    stop_hook_mode = resolve_stop_hook_mode(plugin_root, project_config)
+    if stop_hook_mode == "disabled":
+        return allow_stop()
+    if stop_hook_mode == "prompt":
+        if prompt_marker_allows_stop(repo, session_id, current_hash):
+            mark_session_done(session_done, repo, session_id, current_hash, "prompt_seen")
+            return allow_stop()
+        emit_prompt(repo, plugin_root, session_id, current_hash, diff)
         return allow_stop()
 
     deadline = time.time() + max_seconds
@@ -845,7 +1021,7 @@ def run_gate(
     try:
         run_dir = newest_matching_run(repo, current_hash)
         if run_dir is None:
-            run_dir = launch_review(plugin_root, repo)
+            run_dir = launch_review(plugin_root, repo, fast_hook=True)
         heartbeat = GateHeartbeat(status_interval)
         heartbeat.maybe_emit(run_dir, force=True)
         wait_for_ui_or_terminal(run_dir, deadline, poll_interval, heartbeat)
@@ -854,11 +1030,19 @@ def run_gate(
         emit_launch_failure(repo, plugin_root, str(exc))
         return 0  # emit_launch_failure already printed a block JSON object
 
-    touch(session_done)
+    latest_diff = current_review_diff(repo)
+    latest_hash = diff_sha256(latest_diff)
+    if latest_hash != current_hash:
+        mark_stale_review(run_dir, session_id, current_hash, latest_hash, latest_diff)
+        return allow_stop()
+
+    mark_session_done(session_done, repo, session_id, current_hash, "review_gate")
     write_json(run_dir / "review-gate.json", {
         "session_id": session_id,
         "outcome": outcome,
+        "stop_hook_mode": stop_hook_mode,
         "plan_mode": plan_mode,
+        "diff_sha256": current_hash,
         "handled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
     if outcome == "block":
@@ -873,7 +1057,7 @@ def main() -> int:
         parser = argparse.ArgumentParser()
         parser.add_argument("--plugin-root", default=os.environ.get("CLAUDE_PLUGIN_ROOT"))
         parser.add_argument("--cwd", default=os.getcwd())
-        parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("ACR_GATE_MAX_SECONDS", "345600")))
+        parser.add_argument("--max-seconds", type=float, default=float(os.environ.get("ACR_GATE_MAX_SECONDS", str(DEFAULT_GATE_MAX_SECONDS))))
         parser.add_argument("--poll-interval", type=float, default=float(os.environ.get("ACR_GATE_POLL_INTERVAL_SECONDS", "1")))
         parser.add_argument(
             "--status-interval",

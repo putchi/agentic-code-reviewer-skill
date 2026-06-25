@@ -6,16 +6,21 @@ import { buildRuntimeMetadata, type RuntimeMetadata } from './runtime';
 interface PersistedSettings {
   autoCloseMs: number;
   firstRunDone: boolean;
+  stopHookMode: StopHookMode;
 }
 
 export interface Settings extends RuntimeMetadata {
   autoCloseMs: number;
   firstRunDone: boolean;
+  stopHookMode: StopHookMode;
 }
+
+export type StopHookMode = 'prompt' | 'auto' | 'disabled';
 
 const DEFAULTS: PersistedSettings = {
   autoCloseMs: 0,
   firstRunDone: false,
+  stopHookMode: 'prompt',
 };
 
 const SETTINGS_FILENAME = 'settings.json';
@@ -35,10 +40,15 @@ function hasExplicitSettingsPath(): boolean {
   return Boolean(process.env.ACR_SETTINGS_FILE || process.env.ACR_SETTINGS_DIR);
 }
 
+function normalizeStopHookMode(value: unknown): StopHookMode {
+  return value === 'auto' || value === 'disabled' || value === 'prompt' ? value : DEFAULTS.stopHookMode;
+}
+
 function hydrateSettings(settings: Partial<PersistedSettings> | null): Settings {
   return {
     ...DEFAULTS,
     ...(settings || {}),
+    stopHookMode: normalizeStopHookMode(settings?.stopHookMode),
     ...buildRuntimeMetadata({ explicitPlatform: detectPlatform(), pluginRoot: PLUGIN_ROOT, modelRole: 'balanced' }),
   };
 }
@@ -50,6 +60,7 @@ function readSettingsFile(path: string): PersistedSettings | null {
   return {
     autoCloseMs: typeof parsed.autoCloseMs === 'number' ? parsed.autoCloseMs : DEFAULTS.autoCloseMs,
     firstRunDone: typeof parsed.firstRunDone === 'boolean' ? parsed.firstRunDone : DEFAULTS.firstRunDone,
+    stopHookMode: normalizeStopHookMode(parsed.stopHookMode),
   };
 }
 
@@ -57,6 +68,7 @@ function toPersistedSettings(settings: Partial<Settings>): PersistedSettings {
   return {
     autoCloseMs: typeof settings.autoCloseMs === 'number' ? settings.autoCloseMs : DEFAULTS.autoCloseMs,
     firstRunDone: typeof settings.firstRunDone === 'boolean' ? settings.firstRunDone : DEFAULTS.firstRunDone,
+    stopHookMode: normalizeStopHookMode(settings.stopHookMode),
   };
 }
 

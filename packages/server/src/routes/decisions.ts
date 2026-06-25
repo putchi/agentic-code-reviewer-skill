@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DecisionPayload, DecisionsFile, FindingDecision, RunContext, SynthesisFinding } from '@acr/shared';
-import { decisionFile, decisionsJsonFile, doneFile, runJsonFile, contextFile, runDir, PLUGIN_ROOT } from '../config';
+import { decisionFile, decisionsJsonFile, doneFile, runJsonFile, contextFile, runDir, PLUGIN_ROOT, sessionId } from '../config';
 import { readFindings, saveMarkdown } from '../findings';
 import { triggerAutoResume } from '../auto-resume';
 
@@ -96,6 +96,24 @@ function writeResumeArtifact(decision: DecisionsFile): void {
   }
 }
 
+export function buildDoneSentinel(decision: DecisionsFile, context: RunContext | null): Record<string, string> {
+  return {
+    repo: context?.repo || '',
+    session_id: sessionId,
+    run_id: decision.run_id,
+    diff_sha256: typeof context?.diff_sha256 === 'string' ? context.diff_sha256 : '',
+    reason: 'server_final_decision',
+    handled_at: new Date().toISOString(),
+  };
+}
+
+function writeDoneSentinel(decision: DecisionsFile): void {
+  const contextJson = contextFile && existsSync(contextFile)
+    ? JSON.parse(readFileSync(contextFile, 'utf8')) as RunContext
+    : null;
+  writeFileSync(doneFile, JSON.stringify(buildDoneSentinel(decision, contextJson), null, 2), 'utf8');
+}
+
 function persistDecision(payload: DecisionPayload, action: 'implement' | 'save' | 'done'): DecisionsFile {
   const decision = normalizeDecision(payload, action);
   if (decisionsJsonFile) {
@@ -105,7 +123,7 @@ function persistDecision(payload: DecisionPayload, action: 'implement' | 'save' 
     if (action !== 'save') writeResumeArtifact(decision);
   }
   writeFileSync(decisionFile, JSON.stringify({ action, ...payload, decisions: decision }), 'utf8');
-  if (action !== 'save') writeFileSync(doneFile, '', 'utf8');
+  if (action !== 'save') writeDoneSentinel(decision);
   return decision;
 }
 

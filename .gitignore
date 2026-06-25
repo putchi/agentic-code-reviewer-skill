@@ -10,8 +10,9 @@
 __pycache__/
 *.py[cod]
 
-# Claude Code local project state (NOT the plugin manifest dir `.claude-plugin/`)
+# Local agent project state (NOT the plugin manifest dir `.claude-plugin/`)
 .claude/
+.codex/
 .remember/
 .superpowers/
 .playwright-screenshots/

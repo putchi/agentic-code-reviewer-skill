@@ -202,6 +202,9 @@ html, body { overflow-x: auto; }
   color: var(--fg-strong);
   letter-spacing: -0.01em;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hdr__meta {
   font-size: 11.5px;

@@ -12,7 +12,7 @@ Five specialist reviewers — semantic, security, architecture, test-coverage, s
 
 The current runtime is process-based: `/code-review` is the intended short command and starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code may also show the plugin-qualified `/agentic-code-reviewer:code-review` form, but `/code-review` remains the canonical user-facing launcher. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
-On Claude Code and Codex there is an extra layer: a Stop hook that blocks the session from ending until a review run has actually reached a final UI decision. Claude Code gets the hook from the plugin manifest; Codex gets it from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
+On Claude Code and Codex there is an extra layer: a Stop hook controlled by `stopHookMode` in `~/.claude/agentic-code-reviewer/settings.json`. The default is `prompt`, including upgraded installs with older settings files. Claude Code gets the hook from the plugin manifest; Codex gets it from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
 
 ## The review council
 
@@ -132,8 +132,8 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook can also launch and gate a review when you try to end a session with unreviewed changes.
-- **Codex**: skills load natively — tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and can be launched automatically by the installed Stop hook.
+- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook prompts by default when you try to end a session with unreviewed changes.
+- **Codex**: skills load natively. Tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and uses the same prompt-first Stop hook by default.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
 Empty diffs exit cleanly by writing a no-findings `synthesis.json` and setting the run status to `no_changes`.
@@ -195,7 +195,7 @@ When the optional VS Code extension is installed and active in the workspace, Ag
 - *Save decisions* — write `decisions.json` and a markdown review record to `docs/code-reviews/`
 - *Close* — save final decisions and close. If there are undecided CRITICAL findings, a guard modal asks for confirmation first.
 
-**Settings pane** (≡ menu) — active AI runtime display, auto-close delay, and version display. Settings persist in `~/.claude/agentic-code-reviewer/settings.json` by default; `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location.
+**Settings pane** (≡ menu) — active AI runtime display, Stop-hook mode, auto-close delay, and version display. Settings persist in `~/.claude/agentic-code-reviewer/settings.json` by default; `ACR_SETTINGS_DIR` and `ACR_SETTINGS_FILE` override the location.
 
 **First-run modal** — shown on first launch to confirm the detected AI runtime and auto-close preference.
 
@@ -220,7 +220,8 @@ Projects can commit a root-level `.acr.json` repo config to control review behav
 
 ```json
 {
-  "disableStopHook": true,
+  "disableStopHook": false,
+  "stopHookMode": "prompt",
   "models": {
     "balanced": "claude-sonnet-4-6",
     "fast": "claude-haiku-4-5-20251001",
@@ -230,25 +231,30 @@ Projects can commit a root-level `.acr.json` repo config to control review behav
 }
 ```
 
-**`disableStopHook`** — set to boolean `true` to opt out of the automatic Stop-hook gate for this repo. Only boolean `true` in the committed `HEAD:.acr.json` takes effect; missing, malformed, non-object, non-boolean, or uncommitted working-tree values are ignored. Manual review commands still work (`/code-review`, Codex skill invocation, and direct `scripts/orchestrator.sh`). Future personal overrides should use a separate ignored file such as `.acr.local.json`; that local override is not implemented today.
+**`disableStopHook`** - set to boolean `true` to opt out of the Stop hook for this repo. Manual review commands still work (`/code-review`, Codex skill invocation, and direct `scripts/orchestrator.sh`).
 
-**`models`** — set default model IDs for the three reviewer roles. `balanced` is used by four of the five reviewer agents and the Ask AI chat; `fast` is used by the test-coverage-analyzer reviewer; `judge` is used by the synthesizer. Values must be full model IDs accepted by the provider CLI `--model` flag (e.g. `claude-haiku-4-5-20251001`) — not shorthand aliases like `haiku` or `sonnet`. Shell environment variables (`ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`) take priority over `.acr.json` values. This field is read by `orchestrator.py` and affects all orchestrator-launched reviews (manual and auto-gate).
+**`stopHookMode`** - optional repo default for `"prompt"`, `"auto"`, or `"disabled"`. User settings in `~/.claude/agentic-code-reviewer/settings.json` win when present. Missing values default to `"prompt"`, including upgraded users with older settings files.
 
-**`outOfScope`** — list of [fnmatch](https://docs.python.org/3/library/fnmatch.html) glob patterns for files to mark as out-of-scope in reviews. Matched against the full relative path and the filename component.
+**`models`** - set default model IDs for the three reviewer roles. `balanced` is used by four of the five reviewer agents and the Ask AI chat; `fast` is used by the test-coverage-analyzer reviewer; `judge` is used by the synthesizer. Values must be full model IDs accepted by the provider CLI `--model` flag (e.g. `claude-haiku-4-5-20251001`), not shorthand aliases like `haiku` or `sonnet`. Shell environment variables (`ACR_MODEL_BALANCED`, `ACR_MODEL_FAST`, `ACR_MODEL_JUDGE`) take priority over `.acr.json` values. This field is read by `orchestrator.py` and affects all orchestrator-launched reviews.
+
+**`outOfScope`** - list of [fnmatch](https://docs.python.org/3/library/fnmatch.html) glob patterns for files to mark as out-of-scope in reviews. Matched against the full relative path and the filename component.
 
 Committed `HEAD:.acr.json` is read first; the working-tree file is used as a fallback so a newly created or gitignored file takes effect without requiring a commit. Missing or malformed fields are silently ignored.
 
 The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop event:
 
 - Uses the hook payload `cwd` when present, so Codex can invoke the hook from outside the repo and still review the correct workspace.
-- Reads committed `HEAD:.acr.json` after repo detection and exits silently before diffing when it contains `"disableStopHook": true`.
+- Reads `.acr.json` after repo detection and exits silently before diffing when it contains `"disableStopHook": true`.
 - Runs `git diff HEAD` (then `git diff`) with the same exclusions as the orchestrator.
-- Reuses the newest matching `.claude/review-runs/<run-id>` when the diff hash matches; otherwise launches `scripts/orchestrator.sh` with server auto-resume disabled.
-- Writes heartbeat status lines to `stderr` every 10 seconds while waiting. Set `ACR_GATE_STATUS_INTERVAL_SECONDS=0` to disable them.
-- Waits for the web UI to receive a final action. **Save decisions** is non-final and keeps the hook waiting.
-- If final decisions include implementation, accepted-fix, explanation, or follow-up-task actions, returns `{"decision":"block"}` with a deterministic `review-resume.sh --repo <repo> --run-id <run-id>` command for the host agent.
-- If all findings are ignored/dismissed or there is no reviewable work, touches the session `.done` sentinel and allows Stop.
-- Stale `.done` sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
+- Resolves mode from `ACR_STOP_HOOK_MODE`, global settings, repo `.acr.json`, then the default `"prompt"`.
+- In `"disabled"` mode, exits silently after the no-diff checks.
+- In `"prompt"` mode, returns one `{"decision":"block"}` prompt with the exact review command. If the same session stops again with the same diff, it allows exit.
+- In `"auto"` mode, reuses a matching run or launches `scripts/orchestrator.sh` with server auto-resume disabled, reviewer timeout `120s`, synthesis timeout `45s`, and reviewer retries set to `0`.
+- Caps hook processing at 180 seconds by default (`ACR_GATE_MAX_SECONDS`), with a registered hook timeout of 210 seconds.
+- Recomputes the diff hash before using review decisions. If the diff changed during review, it writes `review-gate-stale.json` and allows Stop without waking the host agent.
+- Writes heartbeat status lines to `stderr` every 10 seconds while auto mode is waiting. Set `ACR_GATE_STATUS_INTERVAL_SECONDS=0` to disable them.
+- Uses diff-aware `.done` sentinels so a later diff in the same host session is not silently skipped.
+- Stale `.done` and prompt sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
 
 On Codex, review the installed hook with `/hooks` if Codex prompts for hook trust. Manual invocation remains available even when the Stop hook is installed.
 
@@ -261,7 +267,7 @@ On Codex, review the installed hook with `/hooks` if Codex prompts for hook trus
 
 ## Costs and timing
 
-The run starts 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practice, small and medium diffs usually complete in tens of seconds, while large diffs depend on provider CLI latency and the configured model. Reviewer timeout defaults to 900 seconds (`ACR_REVIEW_TIMEOUT_SECONDS`); synthesis timeout defaults to 600 seconds (`ACR_SYNTHESIS_TIMEOUT_SECONDS`).
+Manual runs start 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practice, small and medium diffs usually complete in tens of seconds, while large diffs depend on provider CLI latency and the configured model. Manual reviewer timeout defaults to 900 seconds (`ACR_REVIEW_TIMEOUT_SECONDS`); synthesis timeout defaults to 600 seconds (`ACR_SYNTHESIS_TIMEOUT_SECONDS`). Stop-hook auto mode uses a fast budget: 120 seconds for reviewers, 45 seconds for synthesis, and no reviewer retries unless overridden by environment variables.
 
 ## Screenshots
 

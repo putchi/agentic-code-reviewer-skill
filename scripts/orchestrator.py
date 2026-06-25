@@ -166,6 +166,11 @@ class Orchestrator:
         self.provider = args.provider or os.environ.get("ACR_REVIEW_PROVIDER", "claude")
         self.review_timeout = args.review_timeout
         self.synthesis_timeout = args.synthesis_timeout
+        self.max_reviewer_retries = getattr(
+            args,
+            "max_reviewer_retries",
+            int(os.environ.get("ACR_REVIEWER_MAX_RETRIES", "2")),
+        )
         self.run_file = self.run_dir / "run.json"
         self.log_prefix = f"[{self.run_id}]"
 
@@ -262,7 +267,7 @@ class Orchestrator:
                     if self.validate_reviewer(agent):
                         state.status = "success"
                         del procs[agent]
-                    elif state.attempts < 2:
+                    elif state.attempts < self.max_reviewer_retries:
                         # Check for a validation-error sidecar written by claude_json.py (exit 2)
                         sidecar = self.run_dir / "agents" / f"{agent}.json.validation-error.txt"
                         if sidecar.exists():
@@ -525,6 +530,7 @@ def main() -> int:
     parser.add_argument("--pr")
     parser.add_argument("--review-timeout", type=int, default=int(os.environ.get("ACR_REVIEW_TIMEOUT_SECONDS", "900")))
     parser.add_argument("--synthesis-timeout", type=int, default=int(os.environ.get("ACR_SYNTHESIS_TIMEOUT_SECONDS", "600")))
+    parser.add_argument("--max-reviewer-retries", type=int, default=int(os.environ.get("ACR_REVIEWER_MAX_RETRIES", "2")))
     args = parser.parse_args()
     return Orchestrator(args).run()
 

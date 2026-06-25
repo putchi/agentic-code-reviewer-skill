@@ -600,6 +600,62 @@ class OrchestratorTest(unittest.TestCase):
             self.assertIsNone(captured_env.get("ACR_MODEL_JUDGE"),
                               "ACR_MODEL_JUDGE must not be set from .acr.json when provider is codex")
 
+    def test_run_reviewers_does_not_retry_when_max_reviewer_retries_is_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            run_dir = repo / ".claude" / "review-runs" / "20260625T110000Z-retries"
+            plugin_root = root / "plugin"
+            repo.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+            (run_dir / "agents").mkdir()
+            plugin_root.mkdir()
+
+            args = SimpleNamespace(
+                repo=str(repo),
+                run_id=run_dir.name,
+                run_dir=str(run_dir),
+                plugin_root=str(plugin_root),
+                pr=None,
+                platform="claude",
+                provider="claude",
+                review_timeout=1,
+                synthesis_timeout=1,
+                max_reviewer_retries=0,
+            )
+            subject = orchestrator.Orchestrator(args)
+            spawn_calls: list[tuple[str, str | None]] = []
+            failed_agents: list[tuple[str, str]] = []
+
+            class FakeProcess:
+                pid = 123
+                returncode = 0
+
+                def poll(self) -> int:
+                    return self.returncode
+
+            original_spawn = subject._spawn_reviewer
+            original_validate = subject.validate_reviewer
+            original_failed = subject.failed_reviewer
+            try:
+                def fake_spawn(agent: str, feedback_file: str | None = None):
+                    spawn_calls.append((agent, feedback_file))
+                    return FakeProcess()
+
+                subject._spawn_reviewer = fake_spawn
+                subject.validate_reviewer = lambda agent: False
+                subject.failed_reviewer = lambda agent, error: failed_agents.append((agent, error))
+
+                subject.run_reviewers()
+            finally:
+                subject._spawn_reviewer = original_spawn
+                subject.validate_reviewer = original_validate
+                subject.failed_reviewer = original_failed
+
+            self.assertEqual(len(spawn_calls), len(orchestrator.AGENTS))
+            self.assertTrue(all(feedback is None for _, feedback in spawn_calls))
+            self.assertEqual([agent for agent, _ in failed_agents], orchestrator.AGENTS)
+
 
 if __name__ == "__main__":
     unittest.main()

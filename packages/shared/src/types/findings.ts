@@ -28,6 +28,7 @@ export interface ReviewData {
   timestamp: string;
   branch: string;
   sessionId: string;
+  repoLabel?: string;
   runId?: string;
   synthesisStatus?: string;
   resumeCommand?: string;
