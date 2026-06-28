@@ -60,6 +60,7 @@ HOOK_SYNTHESIS_TIMEOUT_SECONDS = "45"
 POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
 PROMPT_MARKER_PREFIX = "claude-code-review-prompt-"
 CONFIRMATION_MARKER_PREFIX = "claude-code-review-confirm-"
+CONFIRMATION_RESPONSE_MARKER_PREFIX = "claude-code-review-confirm-response-"
 CONFIRMATION_MARKER_TTL_SECONDS = 86400
 POST_RESUME_SKIP_FILE = "review-gate-post-resume-skip.json"
 STALE_REVIEW_FILE = "review-gate-stale.json"
@@ -191,6 +192,7 @@ def cleanup_stale_sentinels(tmp_dir: Path = Path("/tmp")) -> None:
         "claude-code-review-*.done",
         f"{PROMPT_MARKER_PREFIX}*.json",
         f"{CONFIRMATION_MARKER_PREFIX}*.json",
+        f"{CONFIRMATION_RESPONSE_MARKER_PREFIX}*.json",
     ):
         for path in tmp_dir.glob(pattern):
             try:
@@ -290,6 +292,53 @@ def load_confirmation_marker(repo: Path, session_id: str, tmp_dir: Path = Path("
         unlink_quietly(marker_path)
         return None
     return marker_path, marker
+
+
+def confirmation_marker_matches_diff(repo: Path, session_id: str, current_diff_sha: str) -> bool:
+    marker_entry = load_confirmation_marker(repo, session_id)
+    if not marker_entry:
+        return False
+    marker_path, marker = marker_entry
+    if marker.get("diff_sha256") == current_diff_sha:
+        return True
+    unlink_quietly(marker_path)
+    return False
+
+
+def confirmation_response_marker_path(
+    repo: Path,
+    session_id: str,
+    current_diff_sha: str,
+    response_key: str,
+    tmp_dir: Path = Path("/tmp"),
+) -> Path:
+    response_sha = hashlib.sha256(response_key.encode("utf-8")).hexdigest()
+    return tmp_dir / (
+        f"{CONFIRMATION_RESPONSE_MARKER_PREFIX}"
+        f"{repo_marker_key(repo)}-{safe_session_id(session_id)}-"
+        f"{current_diff_sha[:16]}-{response_sha}.json"
+    )
+
+
+def claim_confirmation_response(repo: Path, session_id: str, current_diff_sha: str, response_key: str) -> bool:
+    marker_path = confirmation_response_marker_path(repo, session_id, current_diff_sha, response_key)
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        with marker_path.open("x", encoding="utf-8") as handle:
+            json.dump({
+                "schema_version": 1,
+                "repo": str(repo),
+                "session_id": session_id,
+                "diff_sha256": current_diff_sha,
+                "response_key_sha256": hashlib.sha256(response_key.encode("utf-8")).hexdigest(),
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        return True
+    except FileExistsError:
+        return False
+    except Exception:
+        return True
 
 
 def post_resume_marker_paths(repo: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
@@ -1055,16 +1104,25 @@ def handle_user_prompt_submit(raw_input: str, plugin_root: Path, cwd: Path) -> i
         )
         return 0
 
-    response = classify_confirmation_response(hook_user_prompt(event))
+    user_prompt = hook_user_prompt(event)
+    response = classify_confirmation_response(user_prompt)
     if response == "no":
+        if not claim_confirmation_response(repo, session_id, current_hash, "no"):
+            return allow_stop()
         unlink_quietly(marker_path)
         mark_session_done(done_file(session_id), repo, session_id, current_hash, "prompt_declined")
         emit_stop_reason("Agentic Code Reviewer skipped for this diff.")
         return 0
 
     if response != "yes":
+        prompt_sha = hashlib.sha256((user_prompt or "").encode("utf-8")).hexdigest()
+        if not claim_confirmation_response(repo, session_id, current_hash, f"pending:{prompt_sha}"):
+            return allow_stop()
         emit_stop_reason("Agentic Code Reviewer is waiting for confirmation. Reply yes/y to run the review, or no/n/skip to skip this diff.")
         return 0
+
+    if not claim_confirmation_response(repo, session_id, current_hash, "yes"):
+        return allow_stop()
 
     try:
         run_dir = launch_review(plugin_root, repo, fast_hook=False, disable_auto_resume=False)
@@ -1128,6 +1186,8 @@ def run_gate(
     if stop_hook_mode == "disabled":
         return allow_stop()
     if stop_hook_mode == "prompt":
+        if confirmation_marker_matches_diff(repo, session_id, current_hash):
+            return allow_stop()
         emit_prompt(repo, plugin_root, session_id, current_hash, diff)
         return allow_stop()
 

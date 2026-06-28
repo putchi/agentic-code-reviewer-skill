@@ -70,6 +70,17 @@ class ReviewGateTest(unittest.TestCase):
             fn(*args)
         return json.loads(stdout.getvalue())
 
+    def cleanup_confirmation_response_markers(self, repo: Path, session_id: str) -> None:
+        pattern = (
+            f"{review_gate.CONFIRMATION_RESPONSE_MARKER_PREFIX}"
+            f"{review_gate.repo_marker_key(repo)}-{review_gate.safe_session_id(session_id)}-*.json"
+        )
+        for path in Path("/tmp").glob(pattern):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
     def write_review_run(
         self,
         repo: Path,
@@ -649,6 +660,7 @@ class ReviewGateTest(unittest.TestCase):
             session_id = "prompt-mode-test"
             marker = review_gate.confirmation_marker_path(repo, session_id)
             session_done = review_gate.done_file(session_id)
+            self.cleanup_confirmation_response_markers(repo, session_id)
             for path in (marker, session_done):
                 try:
                     path.unlink()
@@ -694,6 +706,60 @@ class ReviewGateTest(unittest.TestCase):
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):
                         result = review_gate.run_gate(
+                            json.dumps({"session_id": session_id, "cwd": str(repo)}),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertTrue(marker.exists())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
+                            json.dumps({
+                                "hook_event_name": "UserPromptSubmit",
+                                "session_id": session_id,
+                                "cwd": str(repo),
+                                "prompt": "ok commit and push the changes then",
+                            }),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    payload = json.loads(stdout.getvalue())
+                    self.assertEqual(payload["continue"], False)
+                    self.assertIn("Agentic Code Reviewer is waiting for confirmation.", payload["stopReason"])
+                    self.assertTrue(marker.exists())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
+                            json.dumps({
+                                "hook_event_name": "UserPromptSubmit",
+                                "session_id": session_id,
+                                "cwd": str(repo),
+                                "prompt": "ok commit and push the changes then",
+                            }),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertTrue(marker.exists())
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
                             json.dumps({
                                 "hook_event_name": "UserPromptSubmit",
                                 "session_id": session_id,
@@ -712,10 +778,29 @@ class ReviewGateTest(unittest.TestCase):
                     self.assertIn("skipped for this diff", payload["stopReason"])
                     self.assertFalse(marker.exists())
                     self.assertEqual((review_gate.read_json(session_done) or {}).get("diff_sha256"), diff_sha)
+
+                    stdout = io.StringIO()
+                    with contextlib.redirect_stdout(stdout):
+                        result = review_gate.run_gate(
+                            json.dumps({
+                                "hook_event_name": "UserPromptSubmit",
+                                "session_id": session_id,
+                                "cwd": str(repo),
+                                "prompt": "no",
+                            }),
+                            plugin_root,
+                            fallback_cwd,
+                            1,
+                            0.01,
+                            0,
+                        )
+                    self.assertEqual(result, 0)
+                    self.assertEqual(stdout.getvalue(), "")
             finally:
                 review_gate.git_root = original_git_root
                 review_gate.current_review_diff = original_current_review_diff
                 review_gate.launch_review = original_launch_review
+                self.cleanup_confirmation_response_markers(repo, session_id)
                 for path in (marker, session_done):
                     try:
                         path.unlink()
@@ -799,6 +884,19 @@ class ReviewGateTest(unittest.TestCase):
     def test_confirmation_response_treats_skip_as_no(self) -> None:
         self.assertEqual(review_gate.classify_confirmation_response("skip it for now"), "no")
         self.assertEqual(review_gate.classify_confirmation_response("Skip"), "no")
+
+    def test_confirmation_response_claim_is_atomic_per_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve()
+            session_id = "response-claim-test"
+            diff_sha = "abc123"
+            self.cleanup_confirmation_response_markers(repo, session_id)
+            try:
+                self.assertTrue(review_gate.claim_confirmation_response(repo, session_id, diff_sha, "no"))
+                self.assertFalse(review_gate.claim_confirmation_response(repo, session_id, diff_sha, "no"))
+                self.assertTrue(review_gate.claim_confirmation_response(repo, session_id, diff_sha, "yes"))
+            finally:
+                self.cleanup_confirmation_response_markers(repo, session_id)
 
     def test_disabled_stop_hook_mode_exits_without_launching_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
