@@ -1444,12 +1444,10 @@ class ReviewGateTest(unittest.TestCase):
             original_launch_review = review_gate.launch_review
             try:
                 def fake_git_root(cwd: Path) -> Path:
-                    self.assertEqual(cwd, event_cwd.resolve())
-                    return event_cwd.resolve()
+                    self.fail("git_root should not be called in plan mode")
 
                 def fake_current_review_diff(repo: Path) -> str:
-                    self.assertEqual(repo, event_cwd.resolve())
-                    return ""
+                    self.fail("current_review_diff should not be called in plan mode")
 
                 def fake_cleanup(*args, **kwargs) -> None:
                     self.fail("cleanup_stale_sentinels should not be called when there is no diff")
@@ -1521,12 +1519,10 @@ class ReviewGateTest(unittest.TestCase):
             original_launch_review = review_gate.launch_review
             try:
                 def fake_git_root(cwd: Path) -> Path:
-                    self.assertEqual(cwd, event_cwd.resolve())
-                    return event_cwd.resolve()
+                    self.fail("git_root should not be called in transcript plan mode")
 
                 def fake_current_review_diff(repo: Path) -> str:
-                    self.assertEqual(repo, event_cwd.resolve())
-                    return ""
+                    self.fail("current_review_diff should not be called in transcript plan mode")
 
                 def fake_cleanup(*args, **kwargs) -> None:
                     self.fail("cleanup_stale_sentinels should not be called when there is no diff")
@@ -1562,7 +1558,7 @@ class ReviewGateTest(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(stdout.getvalue(), '')
 
-    def test_plan_mode_hook_with_diff_continues_to_review_gate(self) -> None:
+    def test_plan_mode_hook_with_diff_skips_review_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fallback_cwd = root / "fallback"
@@ -1589,22 +1585,17 @@ class ReviewGateTest(unittest.TestCase):
             original_newest_matching_run = review_gate.newest_matching_run
             original_launch_review = review_gate.launch_review
             try:
-                seen_matching: list[tuple[Path, str]] = []
-
                 def fake_git_root(cwd: Path) -> Path:
-                    self.assertEqual(cwd, event_cwd.resolve())
-                    return event_cwd.resolve()
+                    self.fail("git_root should not be called in plan mode")
 
                 def fake_current_review_diff(repo: Path) -> str:
-                    self.assertEqual(repo, event_cwd.resolve())
-                    return "diff --git a/file b/file\n"
+                    self.fail("current_review_diff should not be called in plan mode")
 
                 def fake_newest_matching_run(repo: Path, expected_diff_sha: str) -> Path:
-                    seen_matching.append((repo, expected_diff_sha))
-                    return run_dir
+                    self.fail("newest_matching_run should not be called in plan mode")
 
                 def fake_launch_review(*args, **kwargs) -> None:
-                    self.fail("launch_review should not be called when a matching run exists")
+                    self.fail("launch_review should not be called in plan mode")
 
                 review_gate.git_root = fake_git_root
                 review_gate.current_review_diff = fake_current_review_diff
@@ -1637,7 +1628,6 @@ class ReviewGateTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertEqual(stdout.getvalue(), '')
-            self.assertEqual(len(seen_matching), 1)
 
     def test_non_plan_transcript_hook_continues_to_repo_detection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

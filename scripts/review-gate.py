@@ -1159,6 +1159,9 @@ def run_gate(
         return handle_user_prompt_submit(raw_input, plugin_root, cwd)
 
     plan_mode = hook_event_is_plan_mode(event)
+    if plan_mode:
+        return allow_stop()
+
     cwd = hook_cwd(event, cwd)
     session_id = hook_session_id(event)
 
