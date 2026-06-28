@@ -18,7 +18,7 @@ const STOP_HOOK_MODES: Array<{ id: StopHookMode; title: string; sub: string; tag
   {
     id: 'prompt',
     title: 'Ask before review',
-    sub: 'Block once with review commands, then allow the same diff to exit.',
+    sub: 'Stop and wait for your yes/no/skip reply before review.',
     tag: 'default',
   },
   {

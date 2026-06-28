@@ -48,9 +48,10 @@ Claude Code reads the hook from the plugin manifest; Codex reads the user-level
 entry installed in `~/.codex/hooks.json`. `hooks/code-review-gate.sh`
 delegates to `scripts/review-gate.py`, which uses hook JSON `cwd` when present,
 hashes the current reviewable diff, and then follows the resolved mode:
-`prompt` blocks once with the exact review command, `disabled` exits silently,
-and `auto` launches or reuses a fast review with a 3 minute hook budget. Codex
-may require reviewing or trusting the hook through `/hooks`.
+`prompt` stops the turn and waits for the user's next yes/no/skip reply,
+`disabled` exits silently, and `auto` launches or reuses a fast review with a 3
+minute hook budget. Codex may require reviewing or trusting the hooks through
+`/hooks`.
 
 Claude Code named subagents and Codex `spawn_agent` are not used as the review
 execution primitive. The five reviewers run as independent provider subprocesses
@@ -100,13 +101,15 @@ partial evidence.
 
 ## Continuation
 
-When the Stop hook launched or is watching the run, server auto-resume is
-disabled and the hook owns continuation. In `auto` mode, Implement / Done /
-confirmed Dismiss write final decisions; Save decisions is non-final. If any
-decision is actionable and the diff hash still matches, the hook wakes the host
-agent with instructions to run the resume reader and act on the result. If the
-diff changed while review was running, the hook marks the run stale and allows
-the session to finish without using outdated findings.
+When `auto` mode launches or watches a run, server auto-resume is disabled and
+the hook owns continuation. Implement / Done / confirmed Dismiss write final
+decisions; Save decisions is non-final. If any decision is actionable and the
+diff hash still matches, the hook wakes the host agent with instructions to run
+the resume reader and act on the result. If the diff changed while review was
+running, the hook marks the run stale and allows the session to finish without
+using outdated findings. A user-confirmed `prompt` launch behaves like a manual
+launch and leaves server auto-resume enabled when host session metadata is
+available.
 
 Manual fallback:
 

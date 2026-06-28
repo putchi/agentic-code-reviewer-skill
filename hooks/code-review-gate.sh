@@ -10,10 +10,13 @@ case "$SCRIPT_PATH" in
 esac
 SCRIPT_DIR="$(cd "$SCRIPT_DIR" && pwd -P)"
 
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+SCRIPT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+if [ -f "${SCRIPT_ROOT}/scripts/review-gate.py" ]; then
+  PLUGIN_ROOT="$SCRIPT_ROOT"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 else
-  PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+  PLUGIN_ROOT="$SCRIPT_ROOT"
 fi
 
 resolve_python() {

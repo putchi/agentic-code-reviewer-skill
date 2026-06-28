@@ -199,7 +199,7 @@ class ReviewGateTest(unittest.TestCase):
             self.assertNotIn("accept_fix", system_message)
             self.assertNotIn("create_follow_up_task", system_message)
 
-    def test_emit_prompt_uses_human_confirmation_text(self) -> None:
+    def test_emit_prompt_stops_turn_with_user_confirmation_text(self) -> None:
         with tempfile.TemporaryDirectory(prefix="acr prompt ") as tmp:
             root = Path(tmp)
             repo = root / "repo with spaces"
@@ -207,7 +207,7 @@ class ReviewGateTest(unittest.TestCase):
             session_id = "session-with-changes"
             diff_sha = "abc123"
             diff_text = "diff --git a/src/app.py b/src/app.py\n"
-            marker_path = review_gate.prompt_marker_path(repo, session_id)
+            marker_path = review_gate.confirmation_marker_path(repo, session_id)
 
             try:
                 payload = self.capture_json_stdout(
@@ -218,32 +218,21 @@ class ReviewGateTest(unittest.TestCase):
                     diff_sha,
                     diff_text,
                 )
+
+                self.assertEqual(payload["continue"], False)
+                reason = payload["stopReason"]
+                self.assertTrue(reason.startswith("Agentic Code Reviewer is waiting for your confirmation."), reason[:80])
+                self.assertIn("Reviewable code changes were detected.", reason)
+                self.assertIn("Reply yes/y to run the review, or no/n/skip to skip this diff.", reason)
+                self.assertNotIn("Default is no.", reason)
+                self.assertNotIn(str(repo), reason)
+                self.assertNotIn("Prompt marker", reason)
+                self.assertTrue(marker_path.exists())
             finally:
                 try:
                     marker_path.unlink()
                 except FileNotFoundError:
                     pass
-
-            review_script = plugin_root / "scripts" / "orchestrator.sh"
-            expected_cmd = f"bash {shlex.quote(str(review_script))} --repo {shlex.quote(str(repo))}"
-
-            self.assertEqual(payload["decision"], "block")
-            reason = payload["reason"]
-            self.assertTrue(reason.startswith("Do you want me to run the Agentic Code Reviewer now?"), reason[:80])
-            self.assertIn("I found changed files in this repo.", reason)
-            self.assertIn("Default is no.", reason)
-            self.assertNotIn("IMPORTANT", reason)
-            self.assertNotIn(expected_cmd, reason)
-            self.assertNotIn(str(repo), reason)
-            self.assertNotIn("Prompt marker", reason)
-
-            system_message = payload["systemMessage"]
-            self.assertIn("Before you wrap up, ask the user", system_message)
-            self.assertIn("Only if the user says yes, run this exact command:", system_message)
-            self.assertIn(expected_cmd, system_message)
-            self.assertIn("ACR will skip this same diff.", system_message)
-            self.assertNotIn("IMPORTANT", system_message)
-            self.assertNotIn("Prompt marker", system_message)
 
     def test_emit_launch_failure_reason_contains_manual_recovery_instructions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="acr launch failure ") as tmp:
@@ -658,7 +647,7 @@ class ReviewGateTest(unittest.TestCase):
             diff = "diff --git a/file b/file\n+changed\n"
             diff_sha = review_gate.diff_sha256(diff)
             session_id = "prompt-mode-test"
-            marker = review_gate.prompt_marker_path(repo, session_id)
+            marker = review_gate.confirmation_marker_path(repo, session_id)
             session_done = review_gate.done_file(session_id)
             for path in (marker, session_done):
                 try:
@@ -697,15 +686,20 @@ class ReviewGateTest(unittest.TestCase):
                         )
                     self.assertEqual(result, 0)
                     payload = json.loads(stdout.getvalue())
-                    self.assertEqual(payload["decision"], "block")
-                    self.assertIn("Default is no.", payload["reason"])
-                    self.assertIn("Do you want me to run the Agentic Code Reviewer now?", payload["reason"])
+                    self.assertEqual(payload["continue"], False)
+                    self.assertIn("Agentic Code Reviewer is waiting for your confirmation.", payload["stopReason"])
+                    self.assertIn("Reply yes/y to run the review, or no/n/skip to skip this diff.", payload["stopReason"])
                     self.assertTrue(marker.exists())
 
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):
                         result = review_gate.run_gate(
-                            json.dumps({"session_id": session_id, "cwd": str(repo)}),
+                            json.dumps({
+                                "hook_event_name": "UserPromptSubmit",
+                                "session_id": session_id,
+                                "cwd": str(repo),
+                                "prompt": "no",
+                            }),
                             plugin_root,
                             fallback_cwd,
                             1,
@@ -713,7 +707,10 @@ class ReviewGateTest(unittest.TestCase):
                             0,
                         )
                     self.assertEqual(result, 0)
-                    self.assertEqual(stdout.getvalue(), "")
+                    payload = json.loads(stdout.getvalue())
+                    self.assertEqual(payload["continue"], False)
+                    self.assertIn("skipped for this diff", payload["stopReason"])
+                    self.assertFalse(marker.exists())
                     self.assertEqual((review_gate.read_json(session_done) or {}).get("diff_sha256"), diff_sha)
             finally:
                 review_gate.git_root = original_git_root
@@ -724,6 +721,84 @@ class ReviewGateTest(unittest.TestCase):
                         path.unlink()
                     except FileNotFoundError:
                         pass
+
+    def test_user_prompt_submit_yes_launches_confirmed_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+            diff = "diff --git a/file b/file\n+changed\n"
+            diff_sha = review_gate.diff_sha256(diff)
+            session_id = "prompt-yes-test"
+            marker = review_gate.confirmation_marker_path(repo, session_id)
+            session_done = review_gate.done_file(session_id)
+            for path in (marker, session_done):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            review_gate.write_confirmation_marker(repo, session_id, diff_sha, diff)
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            original_launch_review = review_gate.launch_review
+            try:
+                review_gate.git_root = lambda cwd: repo
+                review_gate.current_review_diff = lambda repo_arg: diff
+
+                launch_calls = []
+
+                def fake_launch_review(*args, **kwargs) -> Path:
+                    launch_calls.append((args, kwargs))
+                    run_dir = repo / ".claude" / "review-runs" / "20260628T120000Z-confirmed"
+                    run_dir.mkdir(parents=True)
+                    return run_dir
+
+                review_gate.launch_review = fake_launch_review
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": session_id,
+                            "cwd": str(repo),
+                            "prompt": "yes",
+                        }),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+
+                self.assertEqual(result, 0)
+                payload = json.loads(stdout.getvalue())
+                self.assertEqual(payload["continue"], False)
+                self.assertIn("Agentic Code Reviewer started", payload["stopReason"])
+                self.assertIn("20260628T120000Z-confirmed", payload["stopReason"])
+                self.assertFalse(marker.exists())
+                self.assertFalse(session_done.exists())
+                self.assertEqual(len(launch_calls), 1)
+                self.assertEqual(launch_calls[0][1].get("fast_hook"), False)
+                self.assertEqual(launch_calls[0][1].get("disable_auto_resume"), False)
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
+                review_gate.launch_review = original_launch_review
+                for path in (marker, session_done):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+
+    def test_confirmation_response_treats_skip_as_no(self) -> None:
+        self.assertEqual(review_gate.classify_confirmation_response("skip it for now"), "no")
+        self.assertEqual(review_gate.classify_confirmation_response("Skip"), "no")
 
     def test_disabled_stop_hook_mode_exits_without_launching_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1197,7 +1272,7 @@ class ReviewGateTest(unittest.TestCase):
                 except FileNotFoundError:
                     pass
                 stdout = io.StringIO()
-                with contextlib.redirect_stdout(stdout):
+                with self.stop_hook_mode("auto"), contextlib.redirect_stdout(stdout):
                     result = review_gate.run_gate(
                         json.dumps({"session_id": later_session, "cwd": str(repo)}),
                         plugin_root,

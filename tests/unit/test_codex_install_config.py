@@ -37,6 +37,15 @@ class CodexInstallConfigTest(unittest.TestCase):
                 stop_hooks[0]["hooks"][0]["timeout"],
                 codex_install_config.DEFAULT_HOOK_TIMEOUT_SECONDS,
             )
+            user_prompt_hooks = data["hooks"]["UserPromptSubmit"]
+            self.assertEqual(
+                user_prompt_hooks[0]["hooks"][0]["command"],
+                codex_install_config.DEFAULT_HOOK_COMMAND,
+            )
+            self.assertEqual(
+                user_prompt_hooks[0]["hooks"][0]["timeout"],
+                codex_install_config.DEFAULT_USER_PROMPT_HOOK_TIMEOUT_SECONDS,
+            )
             self.assertIn("[features]\nhooks = true\n", config_file.read_text(encoding="utf-8"))
 
     def test_existing_stop_hooks_are_preserved_and_rerun_is_idempotent(self) -> None:
@@ -74,6 +83,9 @@ class CodexInstallConfigTest(unittest.TestCase):
             self.assertEqual(commands.count(codex_install_config.DEFAULT_HOOK_COMMAND), 1)
             self.assertIn("/usr/local/bin/existing-hook", commands)
             self.assertIn("UserPromptSubmit", data["hooks"])
+            prompt_commands = codex_install_config.user_prompt_hook_commands(data)
+            self.assertEqual(prompt_commands.count(codex_install_config.DEFAULT_HOOK_COMMAND), 1)
+            self.assertIn("echo prompt", prompt_commands)
 
     def test_existing_acr_stop_hook_timeout_is_updated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

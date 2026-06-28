@@ -59,6 +59,8 @@ HOOK_REVIEW_TIMEOUT_SECONDS = "120"
 HOOK_SYNTHESIS_TIMEOUT_SECONDS = "45"
 POST_RESUME_MARKER_PREFIX = "claude-code-review-post-resume-"
 PROMPT_MARKER_PREFIX = "claude-code-review-prompt-"
+CONFIRMATION_MARKER_PREFIX = "claude-code-review-confirm-"
+CONFIRMATION_MARKER_TTL_SECONDS = 86400
 POST_RESUME_SKIP_FILE = "review-gate-post-resume-skip.json"
 STALE_REVIEW_FILE = "review-gate-stale.json"
 PROJECT_CONFIG_FILE = ".acr.json"
@@ -184,7 +186,12 @@ def touch(path: Path) -> None:
 
 def cleanup_stale_sentinels(tmp_dir: Path = Path("/tmp")) -> None:
     cutoff = time.time() - 86400
-    for pattern in ("claude-code-review-*.blocked", "claude-code-review-*.done", f"{PROMPT_MARKER_PREFIX}*.json"):
+    for pattern in (
+        "claude-code-review-*.blocked",
+        "claude-code-review-*.done",
+        f"{PROMPT_MARKER_PREFIX}*.json",
+        f"{CONFIRMATION_MARKER_PREFIX}*.json",
+    ):
         for path in tmp_dir.glob(pattern):
             try:
                 if path.stat().st_mtime < cutoff:
@@ -251,31 +258,38 @@ def post_resume_marker_path(repo: Path, run_id: str, tmp_dir: Path = Path("/tmp"
     return tmp_dir / f"{POST_RESUME_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_marker_run_id(run_id)}.json"
 
 
-def prompt_marker_path(repo: Path, session_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
-    return tmp_dir / f"{PROMPT_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_session_id(session_id)}.json"
+def confirmation_marker_path(repo: Path, session_id: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    return tmp_dir / f"{CONFIRMATION_MARKER_PREFIX}{repo_marker_key(repo)}-{safe_session_id(session_id)}.json"
 
 
-def prompt_marker_allows_stop(repo: Path, session_id: str, current_diff_sha: str, tmp_dir: Path = Path("/tmp")) -> bool:
-    marker = read_json(prompt_marker_path(repo, session_id, tmp_dir))
-    if not marker:
-        return False
-    return (
-        marker.get("repo") == str(repo)
-        and marker.get("session_id") == session_id
-        and marker.get("diff_sha256") == current_diff_sha
-    )
-
-
-def write_prompt_marker(repo: Path, session_id: str, current_diff_sha: str, current_diff: str, tmp_dir: Path = Path("/tmp")) -> Path:
-    marker_path = prompt_marker_path(repo, session_id, tmp_dir)
+def write_confirmation_marker(repo: Path, session_id: str, current_diff_sha: str, current_diff: str, tmp_dir: Path = Path("/tmp")) -> Path:
+    created_at = time.time()
+    marker_path = confirmation_marker_path(repo, session_id, tmp_dir)
     write_json(marker_path, {
+        "schema_version": 1,
         "repo": str(repo),
         "session_id": session_id,
         "diff_sha256": current_diff_sha,
         "diff_paths": diff_file_paths(current_diff),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at)),
+        "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at + CONFIRMATION_MARKER_TTL_SECONDS)),
     })
     return marker_path
+
+
+def load_confirmation_marker(repo: Path, session_id: str, tmp_dir: Path = Path("/tmp")) -> tuple[Path, dict[str, Any]] | None:
+    marker_path = confirmation_marker_path(repo, session_id, tmp_dir)
+    marker = read_json(marker_path)
+    if not marker:
+        return None
+    if marker.get("repo") != str(repo) or marker.get("session_id") != session_id:
+        unlink_quietly(marker_path)
+        return None
+    expires_at = parse_utc_timestamp(marker.get("expires_at"))
+    if expires_at is not None and expires_at <= time.time():
+        unlink_quietly(marker_path)
+        return None
+    return marker_path, marker
 
 
 def post_resume_marker_paths(repo: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
@@ -633,11 +647,12 @@ def parse_run_id(output: str) -> str | None:
     return match.group(1) if match else None
 
 
-def launch_review(plugin_root: Path, repo: Path, fast_hook: bool = False) -> Path:
+def launch_review(plugin_root: Path, repo: Path, fast_hook: bool = False, disable_auto_resume: bool = True) -> Path:
     env = os.environ.copy()
     env["CLAUDE_PLUGIN_ROOT"] = str(plugin_root)
     env["ACR_STATUS_POLL"] = "0"
-    env["ACR_DISABLE_AUTO_RESUME"] = "1"
+    if disable_auto_resume:
+        env["ACR_DISABLE_AUTO_RESUME"] = "1"
     if fast_hook:
         env["ACR_HOOK_FAST"] = "1"
         env.setdefault("ACR_REVIEW_TIMEOUT_SECONDS", HOOK_REVIEW_TIMEOUT_SECONDS)
@@ -755,31 +770,28 @@ def emit_block(repo: Path, run_dir: Path, plugin_root: Path, decisions: dict[str
     }))
 
 
-def emit_prompt(repo: Path, plugin_root: Path, session_id: str, current_diff_sha: str, current_diff: str) -> None:
-    review_script = plugin_root / "scripts" / "orchestrator.sh"
-    review_cmd = f"bash {shlex.quote(str(review_script))} --repo {shlex.quote(str(repo))}"
-    write_prompt_marker(repo, session_id, current_diff_sha, current_diff)
-    reason = "\n".join([
-        "Do you want me to run the Agentic Code Reviewer now?",
-        "",
-        "I found changed files in this repo.",
-        "",
-        "Default is no. Say yes to start the review. Say no, or stop again with the same diff, to skip it.",
-    ])
-    system_message = "\n".join([
-        "Before you wrap up, ask the user: Do you want me to run the Agentic Code Reviewer now?",
-        "Context: changed files are present in this repo.",
-        "",
-        "Only if the user says yes, run this exact command:",
-        review_cmd,
-        "",
-        "If the user says no, stop again with no further action. ACR will skip this same diff.",
-    ])
+def emit_stop_reason(message: str) -> None:
     print(json.dumps({
-        "decision": "block",
-        "reason": reason,
-        "systemMessage": system_message,
+        "continue": False,
+        "stopReason": message,
     }))
+
+
+def emit_prompt(repo: Path, plugin_root: Path, session_id: str, current_diff_sha: str, current_diff: str) -> None:
+    write_confirmation_marker(repo, session_id, current_diff_sha, current_diff)
+    paths = diff_file_paths(current_diff)
+    path_lines = [f"- {path}" for path in paths[:8]]
+    if len(paths) > 8:
+        path_lines.append(f"- and {len(paths) - 8} more")
+    reason = "\n".join([
+        "Agentic Code Reviewer is waiting for your confirmation.",
+        "",
+        "Reviewable code changes were detected.",
+        *(["", "Changed paths:", *path_lines] if path_lines else []),
+        "",
+        "Reply yes/y to run the review, or no/n/skip to skip this diff.",
+    ])
+    emit_stop_reason(reason)
 
 
 def emit_launch_failure(repo: Path | None, plugin_root: Path, message: str) -> None:
@@ -844,11 +856,60 @@ def parse_hook_event(raw: str) -> dict[str, Any]:
         return {}
 
 
+def hook_payload(event: dict[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def hook_event_name(event: dict[str, Any]) -> str:
+    for container in (event, hook_payload(event)):
+        for key in ("hook_event_name", "hookEventName", "event", "event_name", "eventName"):
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def hook_session_id(event: dict[str, Any]) -> str:
+    for container in (event, hook_payload(event)):
+        value = container.get("session_id") or container.get("sessionId")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "unknown"
+
+
 def hook_cwd(event: dict[str, Any], fallback: Path) -> Path:
-    cwd = event.get("cwd")
-    if isinstance(cwd, str) and cwd.strip():
-        return Path(cwd).expanduser().resolve()
+    for container in (event, hook_payload(event)):
+        cwd = container.get("cwd")
+        if isinstance(cwd, str) and cwd.strip():
+            return Path(cwd).expanduser().resolve()
     return fallback.resolve()
+
+
+def hook_user_prompt(event: dict[str, Any]) -> str | None:
+    for container in (event, hook_payload(event)):
+        for key in ("prompt", "user_prompt", "userPrompt", "message", "text", "input"):
+            value = container.get(key)
+            if isinstance(value, str):
+                return value
+    return None
+
+
+def is_user_prompt_submit_event(event: dict[str, Any]) -> bool:
+    name = re.sub(r"[^a-z]+", "", hook_event_name(event).lower())
+    return name == "userpromptsubmit" or (not name and hook_user_prompt(event) is not None)
+
+
+def classify_confirmation_response(prompt: str | None) -> str | None:
+    if prompt is None:
+        return None
+    normalized = prompt.strip().lower()
+    normalized = normalized.strip("\"'` \t\r\n")
+    match = re.match(r"^(yes|y|no|n|skip)(?:\b|[^a-z0-9_]|$)", normalized)
+    if not match:
+        return None
+    value = match.group(1)
+    return "yes" if value in {"yes", "y"} else "no"
 
 
 def is_plan_value(value: Any) -> bool:
@@ -961,6 +1022,68 @@ def allow_stop() -> int:
     return 0
 
 
+def handle_user_prompt_submit(raw_input: str, plugin_root: Path, cwd: Path) -> int:
+    event = parse_hook_event(raw_input)
+    cwd = hook_cwd(event, cwd)
+    session_id = hook_session_id(event)
+    repo = git_root(cwd)
+    if not repo:
+        return allow_stop()
+
+    marker_entry = load_confirmation_marker(repo, session_id)
+    if not marker_entry:
+        return allow_stop()
+    marker_path, marker = marker_entry
+
+    project_config = read_committed_project_config(repo)
+    if project_config is not None and project_config.get(DISABLE_STOP_HOOK_KEY) is True:
+        unlink_quietly(marker_path)
+        return allow_stop()
+
+    diff = current_review_diff(repo)
+    if not diff.strip():
+        unlink_quietly(marker_path)
+        emit_stop_reason("Agentic Code Reviewer was not started because there are no current reviewable changes.")
+        return 0
+
+    current_hash = diff_sha256(diff)
+    if marker.get("diff_sha256") != current_hash:
+        unlink_quietly(marker_path)
+        emit_stop_reason(
+            "The reviewable diff changed since Agentic Code Reviewer asked for confirmation. "
+            "Stop again when you are ready to review the latest diff."
+        )
+        return 0
+
+    response = classify_confirmation_response(hook_user_prompt(event))
+    if response == "no":
+        unlink_quietly(marker_path)
+        mark_session_done(done_file(session_id), repo, session_id, current_hash, "prompt_declined")
+        emit_stop_reason("Agentic Code Reviewer skipped for this diff.")
+        return 0
+
+    if response != "yes":
+        emit_stop_reason("Agentic Code Reviewer is waiting for confirmation. Reply yes/y to run the review, or no/n/skip to skip this diff.")
+        return 0
+
+    try:
+        run_dir = launch_review(plugin_root, repo, fast_hook=False, disable_auto_resume=False)
+    except GateError as exc:
+        unlink_quietly(marker_path)
+        emit_stop_reason(f"Agentic Code Reviewer could not start the review.\n\n{exc}")
+        return 0
+
+    unlink_quietly(marker_path)
+    emit_stop_reason("\n".join([
+        "Agentic Code Reviewer started for the current diff.",
+        "",
+        f"Run ID: {run_dir.name}",
+        f"Status: .claude/review-runs/{run_dir.name}/run.json",
+        f"Resume after decisions: /review-resume {run_dir.name}",
+    ]))
+    return 0
+
+
 def run_gate(
     raw_input: str,
     plugin_root: Path,
@@ -973,9 +1096,12 @@ def run_gate(
         return allow_stop()
 
     event = parse_hook_event(raw_input)
+    if is_user_prompt_submit_event(event):
+        return handle_user_prompt_submit(raw_input, plugin_root, cwd)
+
     plan_mode = hook_event_is_plan_mode(event)
     cwd = hook_cwd(event, cwd)
-    session_id = str(event.get("session_id") or "unknown")
+    session_id = hook_session_id(event)
 
     repo = git_root(cwd)
     if not repo:
@@ -1002,9 +1128,6 @@ def run_gate(
     if stop_hook_mode == "disabled":
         return allow_stop()
     if stop_hook_mode == "prompt":
-        if prompt_marker_allows_stop(repo, session_id, current_hash):
-            mark_session_done(session_done, repo, session_id, current_hash, "prompt_seen")
-            return allow_stop()
         emit_prompt(repo, plugin_root, session_id, current_hash, diff)
         return allow_stop()
 

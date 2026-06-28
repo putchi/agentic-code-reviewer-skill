@@ -10,6 +10,7 @@ from typing import Any
 
 DEFAULT_HOOK_COMMAND = '/bin/bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"'
 DEFAULT_HOOK_TIMEOUT_SECONDS = 210
+DEFAULT_USER_PROMPT_HOOK_TIMEOUT_SECONDS = 75
 LEGACY_HOOK_COMMANDS = {
     'bash "$HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh"',
     "bash $HOME/.codex/skills/agentic-code-reviewer/hooks/code-review-gate.sh",
@@ -36,15 +37,15 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def stop_hook_commands(data: dict[str, Any]) -> list[str]:
+def event_hook_commands(data: dict[str, Any], event_name: str) -> list[str]:
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
         return []
-    stop = hooks.get("Stop")
-    if not isinstance(stop, list):
+    entries = hooks.get(event_name)
+    if not isinstance(entries, list):
         return []
     commands: list[str] = []
-    for entry in stop:
+    for entry in entries:
         if not isinstance(entry, dict):
             continue
         for hook in entry.get("hooks", []):
@@ -55,28 +56,36 @@ def stop_hook_commands(data: dict[str, Any]) -> list[str]:
     return commands
 
 
-def is_agentic_review_stop_hook(command: Any) -> bool:
+def stop_hook_commands(data: dict[str, Any]) -> list[str]:
+    return event_hook_commands(data, "Stop")
+
+
+def user_prompt_hook_commands(data: dict[str, Any]) -> list[str]:
+    return event_hook_commands(data, "UserPromptSubmit")
+
+
+def is_agentic_review_hook(command: Any) -> bool:
     return isinstance(command, str) and command in AGENTIC_REVIEW_HOOK_COMMANDS
 
 
-def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMMAND) -> bool:
+def merge_codex_event_hook(data: dict[str, Any], event_name: str, command: str, timeout: int) -> bool:
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError("hooks.json field 'hooks' must be an object")
-    stop = hooks.setdefault("Stop", [])
-    if not isinstance(stop, list):
-        raise ValueError("hooks.json field 'hooks.Stop' must be an array")
+    event_hooks = hooks.setdefault(event_name, [])
+    if not isinstance(event_hooks, list):
+        raise ValueError(f"hooks.json field 'hooks.{event_name}' must be an array")
 
     changed = False
     found = False
-    next_stop: list[Any] = []
-    for entry in stop:
+    next_entries: list[Any] = []
+    for entry in event_hooks:
         if not isinstance(entry, dict):
-            next_stop.append(entry)
+            next_entries.append(entry)
             continue
         entry_hooks = entry.get("hooks", [])
         if not isinstance(entry_hooks, list):
-            next_stop.append(entry)
+            next_entries.append(entry)
             continue
 
         next_hooks: list[Any] = []
@@ -84,7 +93,7 @@ def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMM
             if not isinstance(hook, dict) or hook.get("type") != "command":
                 next_hooks.append(hook)
                 continue
-            if not is_agentic_review_stop_hook(hook.get("command")):
+            if not is_agentic_review_hook(hook.get("command")):
                 next_hooks.append(hook)
                 continue
             if found:
@@ -94,8 +103,8 @@ def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMM
             if hook.get("command") != command:
                 hook["command"] = command
                 changed = True
-            if hook.get("timeout") != DEFAULT_HOOK_TIMEOUT_SECONDS:
-                hook["timeout"] = DEFAULT_HOOK_TIMEOUT_SECONDS
+            if hook.get("timeout") != timeout:
+                hook["timeout"] = timeout
                 changed = True
             next_hooks.append(hook)
 
@@ -103,25 +112,33 @@ def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMM
             changed = True
         if next_hooks or set(entry.keys()) != {"hooks"}:
             entry["hooks"] = next_hooks
-            next_stop.append(entry)
+            next_entries.append(entry)
         else:
             changed = True
     if found:
-        if next_stop != stop:
-            hooks["Stop"] = next_stop
+        if next_entries != event_hooks:
+            hooks[event_name] = next_entries
             changed = True
         return changed
 
-    stop.append({
+    event_hooks.append({
         "hooks": [
             {
                 "type": "command",
                 "command": command,
-                "timeout": DEFAULT_HOOK_TIMEOUT_SECONDS,
+                "timeout": timeout,
             }
         ]
     })
     return True
+
+
+def merge_codex_stop_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMMAND) -> bool:
+    return merge_codex_event_hook(data, "Stop", command, DEFAULT_HOOK_TIMEOUT_SECONDS)
+
+
+def merge_codex_user_prompt_hook(data: dict[str, Any], command: str = DEFAULT_HOOK_COMMAND) -> bool:
+    return merge_codex_event_hook(data, "UserPromptSubmit", command, DEFAULT_USER_PROMPT_HOOK_TIMEOUT_SECONDS)
 
 
 FEATURES_HEADER_RE = re.compile(r"^\s*\[features\]\s*(?:#.*)?$")
@@ -184,7 +201,9 @@ def write_text_atomic(path: Path, text: str) -> None:
 
 def configure_codex_hooks(hooks_file: Path, config_file: Path, command: str = DEFAULT_HOOK_COMMAND) -> dict[str, bool]:
     hooks_data = load_hooks_json(hooks_file)
-    hook_added = merge_codex_stop_hook(hooks_data, command)
+    stop_hook_added = merge_codex_stop_hook(hooks_data, command)
+    user_prompt_hook_added = merge_codex_user_prompt_hook(hooks_data, command)
+    hook_added = stop_hook_added or user_prompt_hook_added
     if hook_added or not hooks_file.exists():
         write_json_atomic(hooks_file, hooks_data)
 
@@ -195,6 +214,8 @@ def configure_codex_hooks(hooks_file: Path, config_file: Path, command: str = DE
 
     return {
         "hook_added": hook_added,
+        "stop_hook_added": stop_hook_added,
+        "user_prompt_hook_added": user_prompt_hook_added,
         "config_changed": config_changed,
     }
 

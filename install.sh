@@ -76,7 +76,7 @@ Usage:
 
 Platforms:
   claude  Install as a Claude Code plugin with hooks enabled
-  codex   Install to ~/.codex/skills/agentic-code-reviewer and register a Stop hook
+  codex   Install to ~/.codex/skills/agentic-code-reviewer and register review hooks
   both    Install the Claude Code plugin and the Codex skill
 
 Flags:
@@ -238,7 +238,7 @@ codex_is_installed() {
   [ -d "$HOME/.codex" ] || command -v codex >/dev/null 2>&1
 }
 
-register_codex_stop_hook() {
+register_codex_review_hooks() {
   local hooks_file="$HOME/.codex/hooks.json"
   local config_file="$HOME/.codex/config.toml"
 
@@ -252,7 +252,7 @@ register_codex_stop_hook() {
     --hooks-file "$hooks_file" \
     --config-file "$config_file" >/dev/null
 
-  echo "Registered Codex Stop hook:"
+  echo "Registered Codex review hooks:"
   echo "  $hooks_file"
   echo "Enabled Codex hooks feature:"
   echo "  $config_file"
@@ -317,7 +317,7 @@ install_codex_skill() {
   verify_review_last_surface "$target_dir"
   chmod +x "$target_dir/scripts/"*.sh "$target_dir/scripts/"*.py 2>/dev/null || true
   download_server_binary "$target_dir"
-  register_codex_stop_hook
+  register_codex_review_hooks
 
   echo "Installed Agentic Code Reviewer for codex:"
   echo "  $target_dir"

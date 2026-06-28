@@ -12,7 +12,7 @@ Five specialist reviewers — semantic, security, architecture, test-coverage, s
 
 The current runtime is process-based: `/code-review` is the intended short command and starts `scripts/orchestrator.sh`, which creates `.claude/review-runs/<run-id>/`, launches `scripts/orchestrator.py` with `nohup`, and returns after printing status. Claude Code may also show the plugin-qualified `/agentic-code-reviewer:code-review` form, but `/code-review` remains the canonical user-facing launcher. Claude Code named subagents and Codex `spawn_agent` are not used as the execution primitive.
 
-On Claude Code and Codex there is an extra layer: a Stop hook controlled by `stopHookMode` in `~/.claude/agentic-code-reviewer/settings.json`. The default is `prompt`, including upgraded installs with older settings files. Claude Code gets the hook from the plugin manifest; Codex gets it from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
+On Claude Code and Codex there is an extra layer: a Stop hook controlled by `stopHookMode` in `~/.claude/agentic-code-reviewer/settings.json`. The default is `prompt`, including upgraded installs with older settings files. In prompt mode, the Stop hook stops the turn and asks the user to reply `yes` or `no`; a `UserPromptSubmit` hook consumes that next reply before the model sees it. Claude Code gets the hooks from the plugin manifest; Codex gets them from `~/.codex/hooks.json`. Manual invocation still works on both hosts.
 
 ## The review council
 
@@ -118,7 +118,7 @@ cd agentic-code-reviewer-skill
 
 Codex does **not** need `multi_agent = true` for this skill. The installed Codex skill launches the same local orchestrator, and the orchestrator handles reviewer parallelism with Codex subprocesses. Required tools: `git`, `python3`, `bash`, and the `codex` CLI. PR review mode also requires `gh`.
 
-The Codex installer also merges a Stop hook into `~/.codex/hooks.json` and ensures `~/.codex/config.toml` has `[features] hooks = true`. Existing hooks and unrelated config are preserved. Codex may ask you to review or trust the new hook; use `/hooks` in Codex to inspect and approve it.
+The Codex installer also merges Stop and `UserPromptSubmit` hooks into `~/.codex/hooks.json` and ensures `~/.codex/config.toml` has `[features] hooks = true`. Existing hooks and unrelated config are preserved. Codex may ask you to review or trust the new hook; use `/hooks` in Codex to inspect and approve it.
 
 ### Copilot CLI
 
@@ -132,8 +132,8 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook prompts by default when you try to end a session with unreviewed changes.
-- **Codex**: skills load natively. Tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and uses the same prompt-first Stop hook by default.
+- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook asks for user-owned yes/no confirmation by default when you try to end a session with unreviewed changes.
+- **Codex**: skills load natively. Tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and uses the same user-confirmed Stop hook by default.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
 Empty diffs exit cleanly by writing a no-findings `synthesis.json` and setting the run status to `no_changes`.
@@ -248,13 +248,15 @@ The Stop hook (`hooks/code-review-gate.sh`) does the following on every Stop eve
 - Runs `git diff HEAD` (then `git diff`) with the same exclusions as the orchestrator.
 - Resolves mode from `ACR_STOP_HOOK_MODE`, global settings, repo `.acr.json`, then the default `"prompt"`.
 - In `"disabled"` mode, exits silently after the no-diff checks.
-- In `"prompt"` mode, returns one `{"decision":"block"}` prompt with the exact review command. If the same session stops again with the same diff, it allows exit.
+- In `"prompt"` mode, writes a pending confirmation marker and returns `{"continue":false}` with a user-facing `stopReason`. The next `UserPromptSubmit` hook consumes only `yes/y` or `no/n/skip`; the model does not receive the confirmation question.
+- When the user replies `yes/y`, launches `scripts/orchestrator.sh` for the current diff and reports the run id without marking the diff handled before results are surfaced.
+- When the user replies `no/n/skip`, marks that exact diff skipped for the session.
 - In `"auto"` mode, reuses a matching run or launches `scripts/orchestrator.sh` with server auto-resume disabled, reviewer timeout `120s`, synthesis timeout `45s`, and reviewer retries set to `0`.
 - Caps hook processing at 180 seconds by default (`ACR_GATE_MAX_SECONDS`), with a registered hook timeout of 210 seconds.
 - Recomputes the diff hash before using review decisions. If the diff changed during review, it writes `review-gate-stale.json` and allows Stop without waking the host agent.
 - Writes heartbeat status lines to `stderr` every 10 seconds while auto mode is waiting. Set `ACR_GATE_STATUS_INTERVAL_SECONDS=0` to disable them.
 - Uses diff-aware `.done` sentinels so a later diff in the same host session is not silently skipped.
-- Stale `.done` and prompt sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
+- Stale `.done`, prompt, and confirmation sentinels older than 1 day are auto-cleaned on every invocation. The sentinel files still use `/tmp/claude-code-review-*` names for compatibility on both Claude Code and Codex.
 
 On Codex, review the installed hook with `/hooks` if Codex prompts for hook trust. Manual invocation remains available even when the Stop hook is installed.
 
@@ -303,7 +305,7 @@ Manual runs start 5 reviewer subprocesses plus 1 Synthesizer subprocess. In prac
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
 │   └── screenshots/                    # UI screenshots for README
-├── hooks/                              # Stop-event gate and update-check hook
+├── hooks/                              # Stop/UserPromptSubmit gate and update-check hook
 │   ├── hooks.json
 │   ├── code-review-gate.sh
 │   └── check-update.sh
