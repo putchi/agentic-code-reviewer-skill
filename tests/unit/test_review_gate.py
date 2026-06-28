@@ -733,10 +733,9 @@ class ReviewGateTest(unittest.TestCase):
                             0,
                         )
                     self.assertEqual(result, 0)
-                    payload = json.loads(stdout.getvalue())
-                    self.assertEqual(payload["continue"], False)
-                    self.assertIn("Agentic Code Reviewer is waiting for confirmation.", payload["stopReason"])
-                    self.assertTrue(marker.exists())
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertFalse(marker.exists())
+                    self.assertEqual((review_gate.read_json(session_done) or {}).get("reason"), "prompt_ignored")
 
                     stdout = io.StringIO()
                     with contextlib.redirect_stdout(stdout):
@@ -752,54 +751,91 @@ class ReviewGateTest(unittest.TestCase):
                             1,
                             0.01,
                             0,
-                        )
+                    )
                     self.assertEqual(result, 0)
                     self.assertEqual(stdout.getvalue(), "")
-                    self.assertTrue(marker.exists())
-
-                    stdout = io.StringIO()
-                    with contextlib.redirect_stdout(stdout):
-                        result = review_gate.run_gate(
-                            json.dumps({
-                                "hook_event_name": "UserPromptSubmit",
-                                "session_id": session_id,
-                                "cwd": str(repo),
-                                "prompt": "no",
-                            }),
-                            plugin_root,
-                            fallback_cwd,
-                            1,
-                            0.01,
-                            0,
-                        )
-                    self.assertEqual(result, 0)
-                    payload = json.loads(stdout.getvalue())
-                    self.assertEqual(payload["continue"], False)
-                    self.assertIn("skipped for this diff", payload["stopReason"])
                     self.assertFalse(marker.exists())
-                    self.assertEqual((review_gate.read_json(session_done) or {}).get("diff_sha256"), diff_sha)
-
-                    stdout = io.StringIO()
-                    with contextlib.redirect_stdout(stdout):
-                        result = review_gate.run_gate(
-                            json.dumps({
-                                "hook_event_name": "UserPromptSubmit",
-                                "session_id": session_id,
-                                "cwd": str(repo),
-                                "prompt": "no",
-                            }),
-                            plugin_root,
-                            fallback_cwd,
-                            1,
-                            0.01,
-                            0,
-                        )
-                    self.assertEqual(result, 0)
-                    self.assertEqual(stdout.getvalue(), "")
             finally:
                 review_gate.git_root = original_git_root
                 review_gate.current_review_diff = original_current_review_diff
                 review_gate.launch_review = original_launch_review
+                self.cleanup_confirmation_response_markers(repo, session_id)
+                for path in (marker, session_done):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+
+    def test_user_prompt_submit_no_skips_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fallback_cwd = root / "fallback"
+            repo = (root / "repo").resolve()
+            plugin_root = root / "plugin"
+            fallback_cwd.mkdir()
+            repo.mkdir()
+            plugin_root.mkdir()
+            diff = "diff --git a/file b/file\n+changed\n"
+            diff_sha = review_gate.diff_sha256(diff)
+            session_id = "prompt-no-test"
+            marker = review_gate.confirmation_marker_path(repo, session_id)
+            session_done = review_gate.done_file(session_id)
+            self.cleanup_confirmation_response_markers(repo, session_id)
+            for path in (marker, session_done):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            review_gate.write_confirmation_marker(repo, session_id, diff_sha, diff)
+
+            original_git_root = review_gate.git_root
+            original_current_review_diff = review_gate.current_review_diff
+            try:
+                review_gate.git_root = lambda cwd: repo
+                review_gate.current_review_diff = lambda repo_arg: diff
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": session_id,
+                            "cwd": str(repo),
+                            "prompt": "no",
+                        }),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+                self.assertEqual(result, 0)
+                payload = json.loads(stdout.getvalue())
+                self.assertEqual(payload["continue"], False)
+                self.assertIn("skipped for this diff", payload["stopReason"])
+                self.assertFalse(marker.exists())
+                self.assertEqual((review_gate.read_json(session_done) or {}).get("diff_sha256"), diff_sha)
+
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = review_gate.run_gate(
+                        json.dumps({
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": session_id,
+                            "cwd": str(repo),
+                            "prompt": "no",
+                        }),
+                        plugin_root,
+                        fallback_cwd,
+                        1,
+                        0.01,
+                        0,
+                    )
+                self.assertEqual(result, 0)
+                self.assertEqual(stdout.getvalue(), "")
+            finally:
+                review_gate.git_root = original_git_root
+                review_gate.current_review_diff = original_current_review_diff
                 self.cleanup_confirmation_response_markers(repo, session_id)
                 for path in (marker, session_done):
                     try:

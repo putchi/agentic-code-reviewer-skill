@@ -1118,8 +1118,9 @@ def handle_user_prompt_submit(raw_input: str, plugin_root: Path, cwd: Path) -> i
         prompt_sha = hashlib.sha256((user_prompt or "").encode("utf-8")).hexdigest()
         if not claim_confirmation_response(repo, session_id, current_hash, f"pending:{prompt_sha}"):
             return allow_stop()
-        emit_stop_reason("Agentic Code Reviewer is waiting for confirmation. Reply yes/y to run the review, or no/n/skip to skip this diff.")
-        return 0
+        unlink_quietly(marker_path)
+        mark_session_done(done_file(session_id), repo, session_id, current_hash, "prompt_ignored")
+        return allow_stop()
 
     if not claim_confirmation_response(repo, session_id, current_hash, "yes"):
         return allow_stop()
