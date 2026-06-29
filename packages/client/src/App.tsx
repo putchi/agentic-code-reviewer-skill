@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Finding, FindingAction } from '@acr/shared';
+import type { DecisionPayload, Finding, FindingAction } from '@acr/shared';
 import { useReviewData } from './hooks/useReviewData';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAnnotations, type Selection } from './hooks/useAnnotations';
 import { useEditorAnnotations } from './hooks/useEditorAnnotations';
 import { useSettings } from './hooks/useSettings';
-import { postDecision } from './lib/api';
+import { postDecision, type DecisionPostResult } from './lib/api';
 import { buildDecisionPayload } from '@acr/shared';
 import type { LineAnnotation } from '@acr/shared';
 import Header from './components/Header';
@@ -41,9 +41,11 @@ export default function App() {
   const [showDismissModal, setShowDismissModal] = useState(false);
   const [dismissScope, setDismissScope] = useState<'selected' | 'all'>('selected');
   const [finalizing, setFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [chatPrefill, setChatPrefill] = useState<{ id: number; prompt: string } | null>(null);
   const [commentsFocusToken, setCommentsFocusToken] = useState(0);
   const [reviewDone, setReviewDone] = useState(false);
+  const [completionAutoResume, setCompletionAutoResume] = useState<DecisionPostResult['autoResume'] | null>(null);
 
   const findings = data?.findings ?? [];
   const files = data?.files ?? [];
@@ -96,11 +98,11 @@ export default function App() {
 
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (unaddressedCriticals.length > 0) e.returnValue = '';
+      if (!finalizing && !reviewDone && unaddressedCriticals.length > 0) e.returnValue = '';
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [unaddressedCriticals.length]);
+  }, [finalizing, reviewDone, unaddressedCriticals.length]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -148,36 +150,50 @@ export default function App() {
     });
   }
 
-  function reportAutoResumeFailure(result: Awaited<ReturnType<typeof postDecision>>) {
-    const autoResume = result.autoResume;
-    if (!autoResume || autoResume.started || autoResume.reason === 'disabled') return;
-    const fallback = autoResume.fallbackCommand ? `\n\nManual fallback:\n${autoResume.fallbackCommand}` : '';
-    window.alert(`Agentic Code Reviewer could not resume the host agent automatically (${autoResume.reason || 'unknown reason'}).${fallback}`);
+  function describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error || 'Unknown error');
   }
 
-  function closeTab() {
-    setReviewDone(true);
-    window.close();
+  async function finalizeReview(action: 'implement' | 'done', payload: Omit<DecisionPayload, 'action'>) {
+    setFinalizing(true);
+    setFinalizeError(null);
+    setCompletionAutoResume(null);
+    try {
+      const result = await postDecision(action, payload);
+      setCompletionAutoResume(result.autoResume ?? null);
+      setReviewDone(true);
+      try {
+        window.close();
+      } catch {}
+    } catch (err) {
+      setReviewDone(false);
+      setFinalizeError(`Could not save review decisions: ${describeError(err)}`);
+    } finally {
+      setFinalizing(false);
+    }
   }
 
   async function handleCloseRequest() {
     if (unaddressedCriticals.length > 0) {
       setShowCloseGuard(true);
     } else {
-      reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
-      closeTab();
+      await finalizeReview('done', buildBasePayload());
     }
   }
 
   async function handleCloseGuardSave() {
     setShowCloseGuard(false);
-    await postDecision('save', buildBasePayload());
+    setFinalizeError(null);
+    try {
+      await postDecision('save', buildBasePayload());
+    } catch (err) {
+      setFinalizeError(`Could not save review decisions: ${describeError(err)}`);
+    }
   }
 
   async function handleCloseGuardAnyway() {
     setShowCloseGuard(false);
-    reportAutoResumeFailure(await postDecision('done', buildBasePayload()));
-    closeTab();
+    await finalizeReview('done', buildBasePayload());
   }
 
   function handleSelectAllForImplementation() {
@@ -221,13 +237,7 @@ export default function App() {
 
   async function handleImplementSelected() {
     if (implementationSelectedIds.length === 0) return;
-    setFinalizing(true);
-    try {
-      reportAutoResumeFailure(await postDecision('implement', buildBasePayload()));
-      closeTab();
-    } finally {
-      setFinalizing(false);
-    }
+    await finalizeReview('implement', buildBasePayload());
   }
 
   async function handleDismissConfirm(reason: string) {
@@ -244,18 +254,12 @@ export default function App() {
     setShowDismissModal(false);
     setFindingActions(nextActions);
     setComments(nextComments);
-    setFinalizing(true);
-    try {
-      reportAutoResumeFailure(await postDecision('implement', buildDecisionPayload({
-        runId: data?.runId,
-        findingActions: nextActions,
-        comments: nextComments,
-        lineAnnotations: allAnnotations,
-      })));
-      closeTab();
-    } finally {
-      setFinalizing(false);
-    }
+    await finalizeReview('implement', buildDecisionPayload({
+      runId: data?.runId,
+      findingActions: nextActions,
+      comments: nextComments,
+      lineAnnotations: allAnnotations,
+    }));
   }
 
   function handleCommentChange(key: string, text: string) {
@@ -279,6 +283,7 @@ export default function App() {
   }
 
   const diffText = (data?.files ?? []).find(f => f.path === selectedFile)?.diff ?? '';
+  const autoResumeBlocked = completionAutoResume && !completionAutoResume.started && completionAutoResume.reason !== 'disabled';
 
   if (isLoading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', color:'var(--fg-muted)' }}>
@@ -370,6 +375,11 @@ export default function App() {
         onImplement={handleImplementSelected}
         onDismiss={openDismissModal}
         finalizing={finalizing} />
+      {finalizeError && (
+        <div className="finalize-error" role="alert">
+          {finalizeError}
+        </div>
+      )}
       {showDismissModal && (
         <DismissModal
           count={dismissCount}
@@ -400,7 +410,16 @@ export default function App() {
               <polyline points="20 6 9 17 4 12"/>
             </svg>
             <p className="review-done-title">Review decisions saved.</p>
-            <p className="review-done-hint">You can close this tab.</p>
+            <p className="review-done-hint">
+              {autoResumeBlocked
+                ? `Host resume did not start (${completionAutoResume?.reason || 'unknown reason'}). You can close this tab.`
+                : completionAutoResume?.started
+                  ? 'Host agent resume started. You can close this tab.'
+                  : 'You can close this tab.'}
+            </p>
+            {autoResumeBlocked && completionAutoResume?.fallbackCommand && (
+              <pre className="review-done-fallback">{completionAutoResume.fallbackCommand}</pre>
+            )}
           </div>
         </div>
       )}

@@ -1523,6 +1523,24 @@ html, body { overflow-x: auto; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.abar__saved--error {
+  color: var(--status-error-fg);
+}
+.finalize-error {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 56px;
+  z-index: 160;
+  padding: 10px 14px;
+  border: 1px solid rgba(248,113,113,0.45);
+  border-radius: var(--r-md);
+  background: rgba(248,113,113,0.12);
+  color: var(--status-error-fg);
+  font-size: 12.5px;
+  line-height: 1.4;
+  box-shadow: var(--shadow-lg);
+}
 
 .btn--cta { height: 34px; padding: 0 16px; font-size: 13px; font-weight: 600; }
 
@@ -1552,6 +1570,20 @@ html, body { overflow-x: auto; }
   font-size: 13px;
   font-weight: 400;
   color: var(--fg-muted);
+}
+.review-done-fallback {
+  margin: 2px 0 0;
+  max-width: min(720px, calc(100vw - 96px));
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  background: var(--bg-input);
+  color: var(--fg-default);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Countdown overlay */

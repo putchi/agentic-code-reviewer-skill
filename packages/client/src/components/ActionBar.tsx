@@ -52,6 +52,7 @@ export default function ActionBar({
   onSelectAll, onClearSelection, onImplement, onDismiss, finalizing = false,
 }: Props) {
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const actionCounts = useMemo(() => {
@@ -70,11 +71,19 @@ export default function ActionBar({
     return buildDecisionPayload({ runId, findingActions, comments, lineAnnotations });
   }
 
+  function describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error || 'Unknown error');
+  }
+
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       const result = await postDecision('save', buildPayload());
       setSavedPath(result.path || 'decisions saved');
+    } catch (error) {
+      setSavedPath(null);
+      setSaveError(`Save failed: ${describeError(error)}`);
     } finally {
       setSaving(false);
     }
@@ -104,6 +113,7 @@ export default function ActionBar({
         </span>
       )}
       {savedPath && <span className="abar__saved">{savedPath}</span>}
+      {saveError && <span className="abar__saved abar__saved--error" role="alert">{saveError}</span>}
       <div className="abar__right">
         <button
           className="btn btn--primary"
@@ -111,7 +121,7 @@ export default function ActionBar({
           onClick={onImplement}
           title="Save selected findings for implementation, close this tab, and resume the agent"
         >
-          <PlayIcon /> Implement
+          <PlayIcon /> {finalizing ? 'Implementing...' : 'Implement'}
         </button>
         <button
           className="btn btn--danger"

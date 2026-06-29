@@ -22,6 +22,7 @@ export async function fetchReview(): Promise<ReviewData> { return (await fetch('
 export async function fetchVersionCheck() { return (await fetch('/api/version-check')).json(); }
 export interface DecisionPostResult {
   ok?: boolean;
+  error?: string;
   path?: string;
   autoResume?: {
     started: boolean;
@@ -33,7 +34,14 @@ export interface DecisionPostResult {
 }
 export async function postDecision(action: 'implement'|'save'|'done', payload: Omit<DecisionPayload,'action'>): Promise<DecisionPostResult> {
   const res = await fetch(`/api/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-  return res.json();
+  const data = await res.json().catch(() => ({})) as DecisionPostResult;
+  if (!res.ok) {
+    throw new Error(data.error || res.statusText || `Request failed with status ${res.status}`);
+  }
+  if (data.error) {
+    throw new Error(data.error);
+  }
+  return data;
 }
 export async function createChatSession(): Promise<string> {
   const res = await fetch('/api/chat/session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
