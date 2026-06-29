@@ -30,6 +30,7 @@ const server = Bun.serve({
     if (editorAnnotationResponse) return editorAnnotationResponse;
     if (req.method === 'GET') {
       if (url.pathname === '/')                   return serveClient(clientHtml as unknown as string);
+      if (url.pathname === '/api/ping')           return Response.json({ ok: true });
       if (url.pathname === '/api/review')         return handleReview();
       if (url.pathname === '/api/version-check')  return await handleVersionCheck();
       if (url.pathname === '/api/settings')        return Response.json(loadSettings());

@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 const REQUIRED = [
-  '/api/review', '/api/version-check',
+  '/api/review', '/api/ping', '/api/version-check',
   '/api/settings', '/api/settings/reset',
   '/api/editor-annotations', '/api/editor-annotation',
   '/api/chat/session', '/api/chat/query', '/api/chat/abort',

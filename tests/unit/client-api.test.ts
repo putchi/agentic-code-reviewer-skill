@@ -48,4 +48,12 @@ describe('postDecision', () => {
 
     await expect(postDecision('save', payload)).rejects.toThrow('invalid decision payload');
   });
+
+  test('throws clear message when local server is unreachable', async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
+
+    await expect(postDecision('implement', payload)).rejects.toThrow('Local review server is not reachable: Failed to fetch');
+  });
 });

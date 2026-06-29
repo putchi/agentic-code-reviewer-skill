@@ -33,7 +33,13 @@ export interface DecisionPostResult {
   };
 }
 export async function postDecision(action: 'implement'|'save'|'done', payload: Omit<DecisionPayload,'action'>): Promise<DecisionPostResult> {
-  const res = await fetch(`/api/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  let res: Response;
+  try {
+    res = await fetch(`/api/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'network error');
+    throw new Error(`Local review server is not reachable: ${message}`);
+  }
   const data = await res.json().catch(() => ({})) as DecisionPostResult;
   if (!res.ok) {
     throw new Error(data.error || res.statusText || `Request failed with status ${res.status}`);

@@ -5,9 +5,15 @@ import { decisionFile, decisionsJsonFile, doneFile, runJsonFile, contextFile, ru
 import { readFindings, saveMarkdown } from '../findings';
 import { triggerAutoResume } from '../auto-resume';
 
+const FINAL_SHUTDOWN_DELAY_MS = 10_000;
+
 // f4: shell-safe quoting — consistent with how review-gate.py uses shlex.quote
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+function scheduleFinalShutdown(): void {
+  setTimeout(() => process.exit(0), FINAL_SHUTDOWN_DELAY_MS);
 }
 
 function normalizeDecision(payload: DecisionPayload, fallbackAction: 'implement' | 'save' | 'done'): DecisionsFile {
@@ -135,7 +141,7 @@ export async function handleImplement(payload: DecisionPayload): Promise<Respons
       saveMarkdown(rd, payload.lineAnnotations || {});
     } catch {}
     const autoResume = await triggerAutoResume();
-    setTimeout(() => process.exit(0), 500);
+    scheduleFinalShutdown();
     return Response.json({ ok: true, autoResume });
   } catch (e: any) {
     return Response.json({ error: e.message }, { status: 500 });
@@ -159,7 +165,7 @@ export async function handleDone(payload: DecisionPayload): Promise<Response> {
       saveMarkdown(rd, payload.lineAnnotations || {});
     } catch {}
     const autoResume = await triggerAutoResume();
-    setTimeout(() => process.exit(0), 300);
+    scheduleFinalShutdown();
     return Response.json({ ok: true, autoResume });
   } catch (e: any) {
     return Response.json({ error: e.message }, { status: 500 });

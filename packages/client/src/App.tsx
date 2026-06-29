@@ -82,6 +82,16 @@ export default function App() {
     localStorage.setItem(key, data.runId);
   }, [data?.runId, clearAnnotations]);
 
+  useEffect(() => {
+    if (isLoading || reviewDone) return;
+    const ping = () => {
+      fetch('/api/ping', { cache: 'no-store' }).catch(() => {});
+    };
+    ping();
+    const interval = window.setInterval(ping, 30_000);
+    return () => window.clearInterval(interval);
+  }, [isLoading, reviewDone]);
+
   const counts = { CRITICAL: 0, HIGH: 0, NOTE: 0 };
   for (const f of findings) { if (f.severity in counts) counts[f.severity as keyof typeof counts]++; }
   const filtered = findings.filter(f => activeFilter === 'ALL' || f.severity === activeFilter);
