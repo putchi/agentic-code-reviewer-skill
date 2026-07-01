@@ -44,7 +44,10 @@ export function buildWrapperThemeScript(): string {
   }
   function send(){
     var f=document.querySelector("iframe");
-    if(f&&f.contentWindow)f.contentWindow.postMessage(readTheme(),"*");
+    if(!f||!f.contentWindow)return;
+    var origin="*";
+    try{origin=new URL(f.src).origin;}catch(e){}
+    f.contentWindow.postMessage(readTheme(),origin);
   }
   window.addEventListener("load",function(){send();setTimeout(send,300);});
   var ob=new MutationObserver(function(){send();});
@@ -74,9 +77,16 @@ export function buildThemeListenerScript(): string {
     var b=Math.min(255,Math.max(0,parseInt(h.slice(4,6),16)+amount));
     return"rgb("+r+","+g+","+b+")";
   }
+  // Parent is a vscode-webview:// origin that cannot be enumerated ahead of
+  // time, so validate the payload instead: only plain CSS color-ish values.
+  var SAFE=/^[#a-zA-Z0-9(),.%\\s-]{1,64}$/;
   window.addEventListener("message",function(e){
     if(!e.data||e.data.type!=="acr-vscode-theme")return;
-    var tokens=e.data.tokens;
+    var tokens={};
+    var raw=e.data.tokens||{};
+    for(var k in raw){
+      if(typeof raw[k]==="string"&&SAFE.test(raw[k]))tokens[k]=raw[k];
+    }
     var kind=e.data.themeKind;
     var root=document.documentElement;
     for(var i=0;i<pairs.length;i++){

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { REVIEW_AGENTS, validateRawReviewerResult, validateSynthesisResult } from '@acr/shared';
 import type { DecisionsFile, FileEntry, LineAnnotation, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
@@ -175,9 +175,27 @@ export function readReviewFromRunDir(dir: string): ReviewData | null {
   };
 }
 
+// mtime-keyed cache: review data is immutable once synthesis lands, but every
+// request (incl. each chat query) previously re-parsed synthesis + context +
+// diff + 5 agent files and shelled out to `git config` for the repo label.
+let cachedReview: { key: string; data: ReviewData } | null = null;
+
+function runDirCacheKey(dir: string): string {
+  const parts: string[] = [];
+  for (const name of ['synthesis.json', 'run.json', 'context.json']) {
+    try { parts.push(`${name}:${statSync(join(dir, name)).mtimeMs}`); }
+    catch { parts.push(`${name}:absent`); }
+  }
+  return parts.join('|');
+}
+
 function readFromSynthesis(): ReviewData | null {
   if (!runDir) return null;
-  return readReviewFromRunDir(runDir);
+  const key = runDirCacheKey(runDir);
+  if (cachedReview && cachedReview.key === key) return cachedReview.data;
+  const data = readReviewFromRunDir(runDir);
+  cachedReview = data ? { key, data } : null;
+  return data;
 }
 
 export function readFindings(): ReviewData {

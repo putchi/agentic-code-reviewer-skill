@@ -23,9 +23,9 @@ On Claude Code and Codex there is an extra layer: a Stop hook controlled by `sto
 | `architecture-reviewer` | Module boundaries, system-level SOLID, missing abstractions, YAGNI | Sonnet | `gpt-5.4`, reasoning `medium` |
 | `test-coverage-analyzer` | Behavioral test gaps, missing edge cases, untested error paths | Haiku | `gpt-5.4-mini`, reasoning `low` |
 | `senior-dev-reviewer` | Local DRY, naming, error handling, project conventions, dead code | Sonnet | `gpt-5.4`, reasoning `medium` |
-| `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus | `gpt-5.5`, reasoning `high` |
+| `synthesizer` (judge) | Dedupe, drop no-evidence findings, resolve contradictions, re-rate severity, write verdict | Opus, effort `xhigh` | `gpt-5.5`, reasoning `xhigh` |
 
-The launcher resolves the active provider from `ACR_PLATFORM`, `--platform`, host session environment, and install path. Claude launches use `claude`; Codex launches use `codex exec`. Defaults are Sonnet / Haiku / Opus on Claude and `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` on Codex.
+The launcher resolves the active provider from `ACR_PLATFORM`, `--platform`, host session environment, and install path. Claude launches use `claude`; Codex launches use `codex exec`. Defaults are the `sonnet` / `haiku` / `opus` CLI aliases on Claude — these resolve to the newest model of each family in your installed CLI (currently Claude Sonnet 5, Haiku 4.5, and Opus 4.8), so reviews track model upgrades automatically — and `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5` on Codex. The judge runs at `xhigh` effort/reasoning; reviewers run at `medium` (`low` for test-coverage). Raise reviewer depth with `ACR_CLAUDE_EFFORT_BALANCED=high` (or `ACR_CODEX_REASONING_BALANCED=high`) if you prefer thoroughness over speed.
 
 Advanced overrides:
 
@@ -236,7 +236,7 @@ Projects can commit a root-level `.acr.json` repo config to control review behav
   "disableStopHook": false,
   "stopHookMode": "prompt",
   "models": {
-    "balanced": "claude-sonnet-4-6",
+    "balanced": "claude-sonnet-5",
     "fast": "claude-haiku-4-5-20251001",
     "judge": "claude-opus-4-8"
   },
@@ -285,6 +285,20 @@ On Codex, review the installed hook with `/hooks` if Codex prompts for hook trus
 ## Costs and timing
 
 Manual runs start 5 reviewer subprocesses plus 1 Synthesizer subprocess. In practice, small and medium diffs usually complete in tens of seconds, while large diffs depend on provider CLI latency and the configured model. Manual reviewer timeout defaults to 900 seconds (`ACR_REVIEW_TIMEOUT_SECONDS`); synthesis timeout defaults to 600 seconds (`ACR_SYNTHESIS_TIMEOUT_SECONDS`). Stop-hook auto mode uses a fast budget: 120 seconds for reviewers, 45 seconds for synthesis, and no reviewer retries unless overridden by environment variables.
+
+Cost controls: when all five reviewers complete with zero findings the synthesizer model call is skipped entirely (the verdict is written deterministically). Diffs larger than `ACR_MAX_DIFF_BYTES` (default 400 KB) are truncated at a file boundary with an explicit notice in the diff and `"diff_truncated": true` in `context.json` — the full diff is never silently dropped. Old run directories are pruned to the `ACR_RUNS_KEEP` most recent (default 20; `0` disables pruning).
+
+## Troubleshooting
+
+| Symptom | Where to look | Likely fix |
+|---|---|---|
+| Review never opens the UI | `.claude/review-runs/<run-id>/run.json` (`status`, `error`) and `orchestrator.log` | `status: failed` includes the error; `ui.error` has UI-start details |
+| A reviewer shows "failed" in the UI | `agents/<name>.log`, `agents/<name>.raw.json.stderr`, `agents/<name>.json.validation-error.txt` | Provider CLI errors (auth, model access) appear in the stderr file; validation errors auto-retry up to 2× first |
+| Verdict says "Review synthesis failed" | `synthesis.raw.json`, `synthesis.retry-1.feedback.txt` | The UI still shows raw reviewer findings via the fallback aggregation; re-run `/code-review` |
+| Stop hook feels stuck | reply `no`/`skip`, or run `/acr-config` to pause the gate | `ACR_STOP_HOOK_MODE=disabled` disables it for the current shell session |
+| Auto-resume didn't fire after Implement | `auto-resume.json` in the run dir | Run the `fallbackCommand` it records, or `/review-resume <run-id>` |
+| UI "server closed" while triaging | the server exits after 30 min idle | Re-open with `/review-last` |
+| Huge diff reviews are slow/expensive | `context.json` `diff_truncated` | Narrow the diff, add `.acrignore` patterns, or raise `ACR_MAX_DIFF_BYTES` |
 
 ## Screenshots
 

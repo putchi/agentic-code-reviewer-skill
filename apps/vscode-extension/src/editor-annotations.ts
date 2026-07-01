@@ -254,11 +254,14 @@ function requestProxy(
     }
 
     const req = http.request(
-      { hostname: "127.0.0.1", port, path: urlPath, method, headers },
+      { hostname: "127.0.0.1", port, path: urlPath, method, headers, timeout: 10_000 },
       (res) => {
-        let data = "";
-        res.on("data", (chunk: string) => (data += chunk));
+        // Collect Buffers and concat once — string += Buffer decodes per chunk
+        // and can corrupt multibyte characters split across chunk boundaries.
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
         res.on("end", () => {
+          const data = Buffer.concat(chunks).toString("utf-8");
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(data);
           } else {
@@ -267,6 +270,9 @@ function requestProxy(
         });
       },
     );
+    req.on("timeout", () => {
+      req.destroy(new Error(`Request to 127.0.0.1:${port}${urlPath} timed out after 10s`));
+    });
     req.on("error", reject);
     if (body) req.write(body);
     req.end();

@@ -73,8 +73,9 @@ export function useChat() {
               { id: assistantId, role: 'assistant', text: `Error: ${message}`, streaming: true },
             ]);
           } else {
+            // Append rather than overwrite so partial streamed content survives
             setMessages(prev => prev.map(m =>
-              m.id === assistantId ? { ...m, text: `Error: ${message}` } : m
+              m.id === assistantId ? { ...m, text: m.text ? `${m.text}\n\n[Error: ${message}]` : `Error: ${message}` } : m
             ));
           }
         }
@@ -88,7 +89,7 @@ export function useChat() {
         ]);
       } else {
         setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, text: `Error: ${e.message}` } : m
+          m.id === assistantId ? { ...m, text: m.text ? `${m.text}\n\n[Error: ${e.message}]` : `Error: ${e.message}` } : m
         ));
       }
     } finally {

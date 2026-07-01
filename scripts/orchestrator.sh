@@ -114,6 +114,7 @@ LABELS = {
     "no_changes": "no reviewable changes",
     "no_findings": "no findings",
     "diff_too_small": "diff too small",
+    "failed": "review failed",
 }
 
 run_dir = Path(sys.argv[1])
@@ -168,6 +169,10 @@ except Exception:
 PY
 )"
   if [ -f "$RUN_DIR/READY" ] || [ "$STATUS" = "awaiting_decisions" ] || [ "$STATUS" = "synthesis_failed" ] || [ "$STATUS" = "no_changes" ] || [ "$STATUS" = "no_findings" ] || [ "$STATUS" = "diff_too_small" ]; then
+    break
+  fi
+  if [ "$STATUS" = "failed" ]; then
+    echo "Review failed. Details: .claude/review-runs/${RUN_ID}/run.json (and orchestrator.log)"
     break
   fi
 

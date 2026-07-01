@@ -81,7 +81,7 @@ acr_codex_reasoning_for_role() {
   esac
   case "$role" in
     fast) printf 'low' ;;
-    judge) printf 'high' ;;
+    judge) printf 'xhigh' ;;
     *) printf 'medium' ;;
   esac
 }
@@ -99,7 +99,7 @@ acr_claude_effort_for_role() {
   esac
   case "$role" in
     fast) printf 'low' ;;
-    judge) printf 'high' ;;
+    judge) printf 'xhigh' ;;
     *) printf 'medium' ;;
   esac
 }

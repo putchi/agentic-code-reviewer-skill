@@ -189,7 +189,11 @@ download_server_binary() {
         arm64) platform="darwin-arm64" ;;
         *)     platform="darwin-x64" ;;
       esac ;;
-    Linux) platform="linux-x64" ;;
+    Linux)
+      case "$(uname -m)" in
+        arm64|aarch64) platform="linux-arm64" ;;
+        *)             platform="linux-x64" ;;
+      esac ;;
     *)
       echo "Warning: unsupported platform — server binary not downloaded. Run 'bun install && bun run build && bun run compile' manually." >&2
       return 0 ;;

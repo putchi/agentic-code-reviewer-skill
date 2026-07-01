@@ -41,7 +41,12 @@ function readIpcRegistry(): Record<string, number> {
 function writeIpcRegistry(registry: Record<string, number>): void {
   const dir = path.dirname(IPC_REGISTRY);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(IPC_REGISTRY, JSON.stringify(registry, null, 2));
+  // Atomic tmp+rename so concurrent extension hosts never observe a torn file.
+  // ponytail: last-writer-wins on concurrent updates; real locking only if
+  // multi-window registration loss ever becomes a reported problem.
+  const tmp = `${IPC_REGISTRY}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(registry, null, 2));
+  fs.renameSync(tmp, IPC_REGISTRY);
 }
 
 function registerIpcPort(workspacePath: string, port: number): void {

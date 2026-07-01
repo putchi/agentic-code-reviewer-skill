@@ -48,7 +48,7 @@ describe('review subprocess command construction', () => {
 
     expect(balanced).toContain('effort=medium');
     expect(fast).toContain('effort=low');
-    expect(judge).toContain('effort=high');
+    expect(judge).toContain('effort=xhigh');
   });
 
   test('supports Claude effort override by role', () => {

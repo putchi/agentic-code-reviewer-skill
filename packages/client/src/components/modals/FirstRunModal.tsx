@@ -107,6 +107,11 @@ export default function FirstRunModal({ settings, onSave, onReset }: Props) {
                   <div className="radiocard__tag">active</div>
                 </div>
               </div>
+              <div className="modal__hint">
+                Detected from the launching host. To change models, set{' '}
+                <code>models</code> in your repo&apos;s <code>.acr.json</code> (run <code>/acr-config</code>) or export{' '}
+                <code>ACR_MODEL_BALANCED</code>/<code>ACR_MODEL_FAST</code>/<code>ACR_MODEL_JUDGE</code>.
+              </div>
             </section>
 
             <section>

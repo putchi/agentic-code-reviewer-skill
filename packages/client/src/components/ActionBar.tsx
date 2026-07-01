@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FindingAction, LineAnnotation } from '@acr/shared';
 import { buildDecisionPayload } from '@acr/shared';
 import { postDecision } from '../lib/api';
@@ -52,6 +52,12 @@ export default function ActionBar({
   onSelectAll, onClearSelection, onImplement, onDismiss, finalizing = false,
 }: Props) {
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  // Auto-dismiss the "saved" confirmation so it doesn't read as current state forever
+  useEffect(() => {
+    if (!savedPath) return;
+    const t = setTimeout(() => setSavedPath(null), 6000);
+    return () => clearTimeout(t);
+  }, [savedPath]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

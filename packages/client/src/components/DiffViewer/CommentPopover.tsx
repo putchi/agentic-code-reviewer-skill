@@ -2,6 +2,17 @@ import { useRef, useEffect } from 'react';
 import type { Selection } from '../../hooks/useAnnotations';
 
 const draftMap = new Map<string, string>();
+const MAX_DRAFTS = 100;
+function setDraft(key: string, value: string) {
+  // Re-insert to refresh recency, then FIFO-evict — keeps abandoned drafts bounded
+  draftMap.delete(key);
+  draftMap.set(key, value);
+  while (draftMap.size > MAX_DRAFTS) {
+    const oldest = draftMap.keys().next().value;
+    if (oldest === undefined) break;
+    draftMap.delete(oldest);
+  }
+}
 
 interface Props {
   selection: Selection | null;
@@ -64,7 +75,7 @@ export default function CommentPopover({ selection, anchorRect, initialText = ''
         className="comment-popover__textarea"
         placeholder="Add comment…"
         rows={3}
-        onChange={e => { if (draftKey) draftMap.set(draftKey, e.target.value); }}
+        onChange={e => { if (draftKey) setDraft(draftKey, e.target.value); }}
         onKeyDown={e => {
           if (e.key === 'Escape') { clearDraft(); onClose(); }
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSave();

@@ -26,10 +26,22 @@ export function createCookieProxy(
       const reqUrl = new URL(req.url!, "http://localhost");
 
       if (reqUrl.pathname === "/___ext/cookies" && req.method === "POST") {
-        let body = "";
-        req.on("data", (chunk: string) => (body += chunk));
+        const chunks: Buffer[] = [];
+        let received = 0;
+        const MAX_COOKIE_BYTES = 16 * 1024; // cookies are small; cap the body
+        req.on("data", (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > MAX_COOKIE_BYTES) {
+            res.writeHead(413);
+            res.end("payload too large");
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
         req.on("end", () => {
-          options.onSaveCookies(body);
+          if (received > MAX_COOKIE_BYTES) return;
+          options.onSaveCookies(Buffer.concat(chunks).toString("utf-8"));
           res.writeHead(200);
           res.end("ok");
         });

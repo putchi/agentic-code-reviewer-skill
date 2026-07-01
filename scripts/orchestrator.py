@@ -199,9 +199,17 @@ class Orchestrator:
         pr_meta: dict | None = None
         if self.pr:
             pr_number = self.pr.rstrip("/").split("/")[-1]
-            meta = run(["gh", "pr", "view", pr_number, "--json", "number,title,author,headRefName,baseRefName,url"], self.repo)
-            diff = run(["gh", "pr", "diff", pr_number], self.repo).stdout
-            pr_meta = json.loads(meta.stdout)
+            try:
+                meta = run(["gh", "pr", "view", pr_number, "--json", "number,title,author,headRefName,baseRefName,url"], self.repo)
+                diff = run(["gh", "pr", "diff", pr_number], self.repo).stdout
+                pr_meta = json.loads(meta.stdout)
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or exc.stdout or "").strip()[:500]
+                raise RuntimeError(
+                    f"could not fetch PR {pr_number!r} via gh (is gh authenticated and the PR accessible?): {detail}"
+                ) from exc
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"gh returned unparseable PR metadata for {pr_number!r}: {exc}") from exc
             branch = str(pr_meta.get("headRefName") or "")
         else:
             try:
@@ -451,6 +459,10 @@ class Orchestrator:
         else:
             if proc.poll() is None:
                 proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
             port_label = str(actual_port) if actual_port else "an assigned port"
             err = f"UI server did not serve run {self.run_id} on port {port_label} within 10 s"
             if last_probe_error:
@@ -460,15 +472,71 @@ class Orchestrator:
         (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
         self.update_run(final_status, ui_pid=proc.pid, ui_port=actual_port, resume_command=f"/review-resume {self.run_id}")
 
+    def prune_old_runs(self) -> None:
+        """Keep the most recent ACR_RUNS_KEEP run dirs (default 20); delete older ones."""
+        try:
+            keep = int(os.environ.get("ACR_RUNS_KEEP", "20"))
+        except ValueError:
+            keep = 20
+        if keep <= 0:
+            return  # retention disabled
+        runs_root = self.run_dir.parent
+        try:
+            candidates = sorted(
+                (p for p in runs_root.iterdir() if p.is_dir() and p != self.run_dir),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return
+        import shutil
+        for stale in candidates[keep:]:
+            try:
+                shutil.rmtree(stale)
+            except OSError:
+                pass  # retention is best-effort; never fail a review over it
+
     def run(self) -> int:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         (self.run_dir / "agents").mkdir(exist_ok=True)
         (self.run_dir / "prompts").mkdir(exist_ok=True)
+        self.prune_old_runs()
         self.update_run("started", started_at=utc_now())
         diff, pr_meta, branch = self.snapshot()
         diff_hash = diff_sha256(diff)
         self.update_run("snapshotting", diff_sha256=diff_hash)
         files = split_diff_files(diff)
+
+        # Cap the diff sent to the model calls — a multi-MB diff costs 6x its
+        # token count (5 reviewers + synthesizer) and mostly times reviewers out.
+        try:
+            max_diff_bytes = int(os.environ.get("ACR_MAX_DIFF_BYTES", "400000"))
+        except ValueError:
+            max_diff_bytes = 400000
+        diff_truncated = False
+        if max_diff_bytes > 0 and len(diff.encode("utf-8", errors="replace")) > max_diff_bytes:
+            kept: list[str] = []
+            size = 0
+            for file_entry in files:
+                chunk = file_entry.get("diff", "")
+                chunk_size = len(chunk.encode("utf-8", errors="replace")) + 1
+                if size + chunk_size > max_diff_bytes:
+                    break
+                kept.append(chunk)
+                size += chunk_size
+            dropped = len(files) - len(kept)
+            if kept and dropped > 0:
+                diff_truncated = True
+                # Note: diff_hash stays the hash of the FULL diff — it is the
+                # change's identity for gate reuse/staleness checks; only the
+                # text sent to the models is truncated.
+                diff = "\n".join(kept) + (
+                    f"\n\n# [ACR NOTICE] diff truncated at {max_diff_bytes} bytes: "
+                    f"{dropped} of {len(files)} files omitted from review. "
+                    f"Raise ACR_MAX_DIFF_BYTES or narrow the diff to review everything.\n"
+                )
+                print(f"warning: diff truncated to {len(kept)}/{len(files)} files ({max_diff_bytes} byte cap)", file=sys.stderr)
+
         (self.run_dir / "diff.txt").write_text(diff, encoding="utf-8")
 
         # Resolve out-of-scope files from .acr.json config
@@ -501,6 +569,7 @@ class Orchestrator:
             "branch": branch,
             "timestamp": utc_now(),
             "diff_sha256": diff_hash,
+            "diff_truncated": diff_truncated,
             "pr": pr_meta,
             "files": files,
         })
@@ -538,6 +607,34 @@ class Orchestrator:
             self.update_run("diff_too_small")
             return 0
         self.run_reviewers()
+
+        # Cost shortcut: when every reviewer completed cleanly with zero
+        # findings there is nothing to judge — skip the synthesizer model call.
+        all_clean = True
+        for agent in AGENTS:
+            try:
+                data = json.loads((self.run_dir / "agents" / f"{agent}.json").read_text(encoding="utf-8"))
+                if data.get("status") != "complete" or data.get("findings"):
+                    all_clean = False
+                    break
+            except Exception:
+                all_clean = False
+                break
+        if all_clean:
+            write_json(self.run_dir / "synthesis.json", {
+                "run_id": self.run_id,
+                "two_sentence_verdict": "All five reviewers completed with zero findings; this diff is fit to ship as-is. No synthesis judgment was needed.",
+                "deduped_findings": [],
+                "dropped_findings_with_reason": [],
+                "contradictions_resolved": [],
+                "severity_rationale": {},
+                "recommended_next_actions": [],
+                "source_agent_result_files": [f"agents/{agent}.json" for agent in AGENTS],
+            })
+            (self.run_dir / "READY").write_text(utc_now() + "\n", encoding="utf-8")
+            self.update_run("no_findings")
+            return 0
+
         synthesis_ok = self.synthesize()
         if synthesis_ok:
             try:
@@ -565,7 +662,18 @@ def main() -> int:
     parser.add_argument("--synthesis-timeout", type=int, default=int(os.environ.get("ACR_SYNTHESIS_TIMEOUT_SECONDS", "600")))
     parser.add_argument("--max-reviewer-retries", type=int, default=int(os.environ.get("ACR_REVIEWER_MAX_RETRIES", "2")))
     args = parser.parse_args()
-    return Orchestrator(args).run()
+    orchestrator = Orchestrator(args)
+    try:
+        return orchestrator.run()
+    except Exception as exc:
+        # Record the failure so the launcher's status poll can stop immediately
+        # instead of waiting out its full polling window.
+        try:
+            orchestrator.update_run("failed", error=str(exc))
+        except Exception:
+            pass
+        print(f"orchestrator failed: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

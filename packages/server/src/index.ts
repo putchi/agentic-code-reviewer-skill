@@ -19,8 +19,9 @@ const editorAnnotationHandler = createEditorAnnotationHandler();
 
 const onIdle = () => { console.log('Idle timeout — closing server.'); server.stop(); process.exit(0); };
 
-const server = Bun.serve({
-  port: selectedPort,
+function serveOnPort(port: number) {
+  return Bun.serve({
+  port,
   hostname: '127.0.0.1',
   idleTimeout: 120,
   async fetch(req) {
@@ -64,7 +65,23 @@ const server = Bun.serve({
     }
     return new Response('Not found', { status: 404 });
   },
-});
+  });
+}
+
+let server: ReturnType<typeof serveOnPort>;
+try {
+  server = serveOnPort(selectedPort);
+} catch (error) {
+  if (selectedPort !== 0) {
+    // Requested port is busy (stale server, other app) — fall back to an
+    // OS-assigned port; the launcher reads the actual port from `ui-port`.
+    console.error(`Port ${selectedPort} unavailable (${error instanceof Error ? error.message : error}); falling back to a random port.`);
+    server = serveOnPort(0);
+  } else {
+    console.error(`Could not start review server: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+}
 
 const url = `http://${server.hostname}:${server.port}`;
 if (runDir) {

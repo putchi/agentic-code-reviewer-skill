@@ -64,16 +64,16 @@ HIGHER=$(printf '%s\n' "$INSTALLED_VERSION" "$LATEST_VERSION" | sort -V | tail -
 if [ "$HIGHER" = "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$INSTALLED_VERSION" ]; then
     # Detect if hook is running from within the plugin source directory.
     if [ -f "$PWD/.claude-plugin/plugin.json" ]; then
-        UPDATE_CMD="./install.sh --platform claude, then /reload-plugins"
+        UPDATE_CMD="./install.sh --platform claude"
     else
-        UPDATE_CMD="/plugin update agentic-code-reviewer, then /reload-plugins"
+        UPDATE_CMD="/plugin update agentic-code-reviewer"
     fi
 
     python3 -c "
 import json, sys
 msg = (
     'agentic-code-reviewer v{latest} is available (installed: v{installed}). '
-    'To update, run: {cmd}'
+    'To update, run: {cmd} and afterwards run /reload-plugins'
 ).format(latest=sys.argv[1], installed=sys.argv[2], cmd=sys.argv[3])
 print(json.dumps({'systemMessage': msg}))
 " "$LATEST_VERSION" "$INSTALLED_VERSION" "$UPDATE_CMD"
