@@ -37,7 +37,7 @@ Advanced overrides:
 
 ## How it works
 
-1. **Launch.** `/code-review` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`. `/review-last` reopens the most recent saved review.
+1. **Launch.** `/code-review` runs `scripts/orchestrator.sh --repo "$(pwd)"`. `/pr-review <number|URL>` adds `--pr "$ARGUMENTS"` and requires `gh`. `/review-last` reopens the most recent saved review. `/acr-config` creates or updates the repo's `.acr.json` (pause/disable the gate, models, scope).
 2. **Snapshot.** The orchestrator validates required tools, creates `.claude/review-runs/<run-id>/`, captures `git diff --text HEAD` with excludes for lockfiles, minified assets, images, archives, and build directories, then writes `diff.txt` and `context.json`. PR mode uses `gh pr view` and `gh pr diff`.
 3. **Fan out.** `scripts/orchestrator.py` starts 5 subprocesses through `scripts/run-reviewer.sh`. Each subprocess uses the resolved provider command against the same `diff.txt` and writes `agents/<reviewer>.json`.
 4. **Synthesize.** `scripts/run-synthesizer.sh` runs after all reviewer files are present. It writes `synthesis.json`; if synthesis fails, `scripts/claude_json.py synthesis-fallback` aggregates raw reviewer findings into a fallback result.
@@ -132,7 +132,7 @@ git clone https://github.com/putchi/agentic-code-reviewer-skill.git
 
 ## Usage
 
-- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, or `/review-last` to reopen the latest saved review. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook asks for user-owned yes/no confirmation by default when you try to end a session with unreviewed changes.
+- **Claude Code**: run `/code-review` for the current branch diff, `/pr-review <number|URL>` to review a specific GitHub PR, `/review-last` to reopen the latest saved review, or `/acr-config` to configure or pause reviews for the repo. Claude Code may display plugin-qualified aliases such as `/agentic-code-reviewer:code-review`, but the short commands are the intended surface. The Stop hook asks for user-owned yes/no confirmation by default when you try to end a session with unreviewed changes.
 - **Codex**: skills load natively. Tell the agent `run code-review on this repo`, `run the code-reviewer skill`, or `run the agentic-code-reviewer skill`. The skill is installed under `~/.codex/skills/agentic-code-reviewer`, shells out to `codex exec` for reviewer subprocesses, and uses the same user-confirmed Stop hook by default.
 - **Copilot CLI**: invoke the skill via the `skill` tool: `skill agentic-code-reviewer`.
 
@@ -153,6 +153,8 @@ ui.log                   # review-server output
 prompts/*.prompt.md      # exact reviewer/synthesizer prompts
 agents/*.json            # one normalized reviewer result per reviewer
 agents/*.raw.json        # raw provider output
+agents/*.json.validation-error.txt    # why a reviewer attempt failed validation (feeds retry feedback)
+agents/*.json.validation-warnings.txt # soft coercions (e.g. unknown severity mapped to HIGH)
 synthesis.json           # final verdict, deduped findings, drops, rationale
 decisions.json           # UI decisions, comments, and line annotations
 auto-resume.json         # auto-resume attempt result and manual fallback command, when applicable
@@ -277,6 +279,8 @@ On Codex, review the installed hook with `/hooks` if Codex prompts for hook trus
 - Does not block commits or pushes — only gates the Stop event in the current Claude Code or Codex session.
 - Does not review binary, lockfile, or build-artifact diffs (filtered out before fan-out).
 - Does not report findings below 80% confidence.
+- Does not accept reviewer findings without quoted diff evidence, an explicit confidence value, a positive line number, and a file path that appears in the reviewed diff — invalid reviewer output fails validation and is retried with feedback (up to `ACR_REVIEWER_MAX_RETRIES`, default 2) before the reviewer is marked failed.
+- Does not accept a synthesis verdict that says "ship as-is" while CRITICAL findings are retained — that fails validation and triggers a synthesizer retry.
 
 ## Costs and timing
 
@@ -313,6 +317,7 @@ Manual runs start 5 reviewer subprocesses plus 1 Synthesizer subprocess. In prac
 ├── commands/pr-review.md               # /pr-review <number|URL> command
 ├── commands/review-resume.md           # /review-resume <run-id> command
 ├── commands/review-last.md             # /review-last command
+├── commands/acr-config.md              # /acr-config command
 ├── docs/
 │   ├── code-reviews/                   # Saved markdown reviews (git-ignored)
 │   └── screenshots/                    # UI screenshots for README
@@ -334,7 +339,8 @@ Manual runs start 5 reviewer subprocesses plus 1 Synthesizer subprocess. In prac
 │   ├── codex-install-config.py         # idempotent Codex hooks/config merge helper
 │   └── capture-screenshots.js         # Playwright screenshot capture for docs
 ├── skills/agentic-code-reviewer/SKILL.md
-├── tests/                             # Bun test runner — unit + parity tests
+├── skills/acr-config/SKILL.md          # .acr.json configuration skill
+├── tests/                             # Bun test runner (unit + parity) and Python unittest suite
 └── install.sh                          # Installer for Claude Code plugin + Codex skill
 ```
 
