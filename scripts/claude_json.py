@@ -122,12 +122,70 @@ def extract_json_object(text: str) -> dict:
     return parsed
 
 
-def normalize_finding(finding: dict, agent: str, index: int) -> dict:
-    severity = str(finding.get("severity", "HIGH")).upper()
-    if severity not in {"CRITICAL", "HIGH"}:
-        severity = "HIGH"
-    file = str(finding.get("file", ""))
-    line = int(finding.get("line") or 0)
+def diff_file_set(diff_text: str) -> set[str]:
+    """Extract changed file paths from a unified diff."""
+    files: set[str] = set()
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/") or line.startswith("--- a/"):
+            files.add(line[6:].strip())
+        elif line.startswith("diff --git "):
+            match = re.match(r"diff --git a/(.+?) b/(.+)$", line)
+            if match:
+                files.update(match.groups())
+    files.discard("/dev/null")
+    return files
+
+
+def normalize_finding(
+    finding: dict,
+    agent: str,
+    index: int,
+    diff_files: set[str] | None = None,
+    errors: list[str] | None = None,
+    warnings: list[str] | None = None,
+) -> dict:
+    """Normalize one reviewer finding.
+
+    Strict checks (missing confidence, non-positive line, empty file/evidence,
+    file not in diff) append to `errors` so the caller can fail validation and
+    trigger the orchestrator retry loop. Soft coercions append to `warnings`.
+    """
+    label = f"finding {index + 1}"
+    raw_severity = str(finding.get("severity", "HIGH")).upper()
+    severity = raw_severity if raw_severity in {"CRITICAL", "HIGH"} else "HIGH"
+    if severity != raw_severity and warnings is not None:
+        warnings.append(f"{label}: severity {raw_severity!r} coerced to HIGH")
+
+    file = str(finding.get("file", "")).strip()
+    if not file and errors is not None:
+        errors.append(f"{label}: missing file path")
+    if file and diff_files and file not in diff_files and errors is not None:
+        errors.append(f"{label}: file {file!r} does not appear in the reviewed diff")
+
+    try:
+        line = int(finding.get("line") or 0)
+    except (TypeError, ValueError):
+        line = 0
+    if line <= 0 and errors is not None:
+        errors.append(f"{label}: line must be a positive integer (got {finding.get('line')!r})")
+
+    evidence = str(finding.get("evidence", ""))
+    if not evidence.strip() and errors is not None:
+        errors.append(f"{label}: evidence must quote the exact diff lines demonstrating the issue")
+
+    raw_confidence = finding.get("confidence")
+    if raw_confidence is None:
+        confidence = 0
+        if errors is not None:
+            errors.append(f"{label}: missing confidence (integer 0-100 required)")
+    else:
+        try:
+            confidence = max(0, min(100, int(raw_confidence)))
+        except (TypeError, ValueError):
+            confidence = 0
+            if errors is not None:
+                errors.append(f"{label}: confidence must be an integer 0-100 (got {raw_confidence!r})")
+
     return {
         "id": str(finding.get("id") or f"{agent}-{index + 1}"),
         "severity": severity,
@@ -136,8 +194,8 @@ def normalize_finding(finding: dict, agent: str, index: int) -> dict:
         "location": str(finding.get("location") or f"{file}:{line}"),
         "finding": str(finding.get("finding", "")),
         "reasoning": str(finding.get("reasoning", "")),
-        "evidence": str(finding.get("evidence", "")),
-        "confidence": int(finding.get("confidence") or 80),
+        "evidence": evidence,
+        "confidence": confidence,
     }
 
 
@@ -178,6 +236,16 @@ def normalize_reviewer(args: argparse.Namespace) -> int:
     if not isinstance(findings, list):
         findings = []
 
+    diff_files: set[str] | None = None
+    diff_file = getattr(args, "diff_file", None)
+    if diff_file:
+        try:
+            diff_files = diff_file_set(Path(diff_file).read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            diff_files = None  # missing diff file must not fail validation
+
+    finding_errors: list[str] = []
+    finding_warnings: list[str] = []
     value = {
         "run_id": args.run_id,
         "agent": args.agent,
@@ -185,18 +253,32 @@ def normalize_reviewer(args: argparse.Namespace) -> int:
         "started_at": str(parsed.get("started_at") or args.started_at),
         "completed_at": str(parsed.get("completed_at") or args.completed_at),
         "error": parsed.get("error", None),
-        "findings": [normalize_finding(f, args.agent, i) for i, f in enumerate(findings) if isinstance(f, dict)],
+        "findings": [
+            normalize_finding(f, args.agent, i, diff_files, finding_errors, finding_warnings)
+            for i, f in enumerate(findings)
+            if isinstance(f, dict)
+        ],
     }
     schema_error: str | None = None
     if value["agent"] not in AGENTS or value["status"] not in {"complete", "failed"}:
         schema_error = f"reviewer result failed schema validation: agent={value['agent']!r}, status={value['status']!r}"
+    elif finding_errors:
+        schema_error = "reviewer findings failed validation:\n" + "\n".join(finding_errors)
+    if schema_error:
         value["status"] = "failed"
         value["error"] = value.get("error") or schema_error
         value["findings"] = []
     write_atomic(Path(args.out_file), value)
+    if finding_warnings:
+        Path(args.out_file + ".validation-warnings.txt").write_text("\n".join(finding_warnings) + "\n", encoding="utf-8")
     if schema_error:
         Path(args.out_file + ".validation-error.txt").write_text(schema_error + "\n", encoding="utf-8")
         return 2
+    # Success: remove any stale validation sidecar left by a failed prior attempt
+    try:
+        Path(args.out_file + ".validation-error.txt").unlink()
+    except FileNotFoundError:
+        pass
     return 0 if value["status"] == "complete" else 1
 
 
@@ -346,9 +428,27 @@ def normalize_synthesis(args: argparse.Namespace) -> int:
         "source_agent_result_files": args.agent_files,
     }
     if not value["two_sentence_verdict"]:
-        raise ValueError("synthesis missing two_sentence_verdict")
+        _synthesis_validation_failure(args.out_file, "synthesis missing two_sentence_verdict")
+    critical_count = sum(1 for f in deduped if f.get("severity") == "CRITICAL")
+    verdict_lower = value["two_sentence_verdict"].lower()
+    ship_ready_phrases = ("ship as-is", "ship as is", "ready to ship", "fit to ship as-is")
+    if critical_count > 0 and any(p in verdict_lower for p in ship_ready_phrases):
+        _synthesis_validation_failure(
+            args.out_file,
+            f"verdict says ship-ready but {critical_count} CRITICAL finding(s) were retained — "
+            "the verdict must call for a fix or rework when CRITICAL findings exist",
+        )
     write_atomic(Path(args.out_file), value)
     return 0
+
+
+def _synthesis_validation_failure(out_file: str, message: str) -> None:
+    """Record a synthesis validation error where the orchestrator retry can find it, then raise."""
+    try:
+        Path(out_file + ".validation-error.txt").write_text(message + "\n", encoding="utf-8")
+    except Exception:
+        pass
+    raise ValueError(message)
 
 
 def aggregate_reviewer_findings(out_file: str, agent_files: list[str]) -> list[dict]:
@@ -420,6 +520,7 @@ def main() -> int:
     reviewer.add_argument("--agent", required=True)
     reviewer.add_argument("--started-at", required=True)
     reviewer.add_argument("--completed-at", required=True)
+    reviewer.add_argument("--diff-file", default=None)
     reviewer.set_defaults(func=normalize_reviewer)
 
     synthesis = sub.add_parser("synthesis")

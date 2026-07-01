@@ -78,13 +78,24 @@ fi
 COMPLETED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
 
 if [ "$RC" -ne 0 ]; then
-  ERR="${ACR_SUBPROCESS_PROVIDER} exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500)"
+  ERR="${ACR_SUBPROCESS_PROVIDER} exited with status ${RC}: $(tr '\n' ' ' < "${RAW_FILE}.stderr" | cut -c1-500) (full stderr: ${RAW_FILE}.stderr)"
+  if [ "$ACR_SUBPROCESS_PROVIDER" = "codex" ] && grep -qiE 'unexpected argument|unrecognized option|invalid value|error: unknown' "${RAW_FILE}.stderr" 2>/dev/null; then
+    ERR="${ERR} — your codex CLI may be outdated; upgrade codex and retry"
+  fi
   python3 "${SCRIPT_DIR}/claude_json.py" reviewer-failure \
     --out-file "$OUT_FILE" --run-id "$RUN_ID" --agent "$AGENT" \
     --started-at "$STARTED_AT" --completed-at "$COMPLETED_AT" --error "$ERR"
   exit 0
 fi
 
+if [ ! -s "$RAW_FILE" ]; then
+  # Leave OUT_FILE unwritten so the orchestrator's validation fails and its
+  # retry loop re-runs this reviewer with the sidecar below as feedback.
+  echo "${ACR_SUBPROCESS_PROVIDER} produced no output (empty ${RAW_FILE}; stderr: ${RAW_FILE}.stderr)" \
+    > "${OUT_FILE}.validation-error.txt"
+  exit 1
+fi
+
 python3 "${SCRIPT_DIR}/claude_json.py" reviewer \
   --raw-file "$RAW_FILE" --out-file "$OUT_FILE" --run-id "$RUN_ID" --agent "$AGENT" \
-  --started-at "$STARTED_AT" --completed-at "$COMPLETED_AT"
+  --started-at "$STARTED_AT" --completed-at "$COMPLETED_AT" --diff-file "$DIFF_FILE"

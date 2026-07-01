@@ -1,5 +1,6 @@
 ---
-description: "Launch a fully backgrounded agentic code review run for the current git diff."
+name: code-review
+description: "Start a background agentic code review of the current git diff — returns immediately; results open in the review UI when ready."
 disable-model-invocation: true
 ---
 

@@ -47,7 +47,12 @@ const server = Bun.serve({
       }
     }
     if (req.method === 'POST') {
-      const payload = await req.json().catch(() => ({}));
+      let payload: any;
+      try {
+        payload = await req.json();
+      } catch {
+        return Response.json({ error: 'request body must be valid JSON' }, { status: 400 });
+      }
       if (url.pathname === '/api/settings/reset') return Response.json(resetSettings());
       if (url.pathname === '/api/settings')       return Response.json(saveSettings(payload));
       if (url.pathname === '/api/chat/session') return handleChatSession(payload);

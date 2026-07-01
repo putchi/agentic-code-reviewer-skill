@@ -28,6 +28,20 @@ export function createEditorAnnotationHandler(): EditorAnnotationHandler {
           if (!body.filePath || !body.selectedText || !body.lineStart || !body.lineEnd) {
             return Response.json({ error: 'Missing required fields' }, { status: 400 });
           }
+          if (
+            typeof body.filePath !== 'string' ||
+            body.filePath.startsWith('/') ||
+            /^[a-zA-Z]:[\\/]/.test(body.filePath) ||
+            body.filePath.split(/[\\/]/).includes('..')
+          ) {
+            return Response.json({ error: 'filePath must be a repo-relative path' }, { status: 400 });
+          }
+          if (
+            !Number.isInteger(body.lineStart) || !Number.isInteger(body.lineEnd) ||
+            body.lineStart < 1 || body.lineEnd < body.lineStart
+          ) {
+            return Response.json({ error: 'lineStart/lineEnd must be positive integers with lineStart <= lineEnd' }, { status: 400 });
+          }
 
           const annotation: EditorAnnotation = {
             id: crypto.randomUUID(),
@@ -40,6 +54,8 @@ export function createEditorAnnotationHandler(): EditorAnnotationHandler {
           };
 
           annotations.push(annotation);
+          // ponytail: FIFO cap keeps the in-memory list bounded
+          if (annotations.length > 500) annotations.splice(0, annotations.length - 500);
           return Response.json({ id: annotation.id });
         } catch {
           return Response.json({ error: 'Invalid JSON' }, { status: 400 });

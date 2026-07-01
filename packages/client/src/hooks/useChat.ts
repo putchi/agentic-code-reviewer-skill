@@ -110,8 +110,8 @@ export function useChat() {
 
   async function abort() {
     const reader = readerRef.current;
-    readerRef.current = null;
     if (reader) { try { await reader.cancel(); } catch {} }
+    readerRef.current = null;
     try {
       if (sessionRef.current) await abortChat(sessionRef.current);
     } finally {

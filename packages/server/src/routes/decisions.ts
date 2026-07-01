@@ -1,6 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DecisionPayload, DecisionsFile, FindingDecision, RunContext, SynthesisFinding } from '@acr/shared';
+import { FINDING_ACTIONS } from '@acr/shared';
+import { writeFileAtomic } from '../fs-atomic';
 import { decisionFile, decisionsJsonFile, doneFile, runJsonFile, contextFile, runDir, PLUGIN_ROOT, sessionId } from '../config';
 import { readFindings, saveMarkdown } from '../findings';
 import { triggerAutoResume } from '../auto-resume';
@@ -14,6 +16,22 @@ function shellQuote(s: string): string {
 
 function scheduleFinalShutdown(): void {
   setTimeout(() => process.exit(0), FINAL_SHUTDOWN_DELAY_MS);
+}
+
+export function validateDecisionPayload(payload: DecisionPayload): string | null {
+  if (!payload || typeof payload !== 'object') return 'payload must be a JSON object';
+  if (payload.findingDecisions) {
+    if (typeof payload.findingDecisions !== 'object' || Array.isArray(payload.findingDecisions)) {
+      return 'findingDecisions must be an object';
+    }
+    for (const [id, dec] of Object.entries(payload.findingDecisions)) {
+      const action = (dec as FindingDecision | null)?.action;
+      if (!action || !(FINDING_ACTIONS as readonly string[]).includes(action)) {
+        return `invalid action ${JSON.stringify(action)} for finding ${JSON.stringify(id)}`;
+      }
+    }
+  }
+  return null;
 }
 
 function normalizeDecision(payload: DecisionPayload, fallbackAction: 'implement' | 'save' | 'done'): DecisionsFile {
@@ -44,7 +62,7 @@ function updateRunStatus(status: string) {
     const run = JSON.parse(readFileSync(runJsonFile, 'utf8'));
     run.status = status;
     run.decided_at = new Date().toISOString();
-    writeFileSync(runJsonFile, JSON.stringify(run, null, 2), 'utf8');
+    writeFileAtomic(runJsonFile, JSON.stringify(run, null, 2));
   } catch {}
 }
 
@@ -95,7 +113,7 @@ function writeResumeArtifact(decision: DecisionsFile): void {
     };
 
     const artifactPath = resolve(runDir, 'resume-artifact.json');
-    writeFileSync(artifactPath, JSON.stringify(artifact, null, 2), 'utf8');
+    writeFileAtomic(artifactPath, JSON.stringify(artifact, null, 2));
   } catch (e) {
     // f8: log warning so operators see when the fast-path artifact is unavailable
     process.stderr.write(`[acr] Warning: failed to write resume-artifact.json: ${e}\n`);
@@ -117,23 +135,25 @@ function writeDoneSentinel(decision: DecisionsFile): void {
   const contextJson = contextFile && existsSync(contextFile)
     ? JSON.parse(readFileSync(contextFile, 'utf8')) as RunContext
     : null;
-  writeFileSync(doneFile, JSON.stringify(buildDoneSentinel(decision, contextJson), null, 2), 'utf8');
+  writeFileAtomic(doneFile, JSON.stringify(buildDoneSentinel(decision, contextJson), null, 2));
 }
 
 function persistDecision(payload: DecisionPayload, action: 'implement' | 'save' | 'done'): DecisionsFile {
   const decision = normalizeDecision(payload, action);
   if (decisionsJsonFile) {
-    writeFileSync(decisionsJsonFile, JSON.stringify(decision, null, 2), 'utf8');
+    writeFileAtomic(decisionsJsonFile, JSON.stringify(decision, null, 2));
     updateRunStatus(action === 'save' ? 'decisions_saved' : 'decisions_ready');
     // f2: resume artifact is only valid for final decisions; skip for intermediate saves
     if (action !== 'save') writeResumeArtifact(decision);
   }
-  writeFileSync(decisionFile, JSON.stringify({ action, ...payload, decisions: decision }), 'utf8');
+  writeFileAtomic(decisionFile, JSON.stringify({ action, ...payload, decisions: decision }));
   if (action !== 'save') writeDoneSentinel(decision);
   return decision;
 }
 
 export async function handleImplement(payload: DecisionPayload): Promise<Response> {
+  const invalid = validateDecisionPayload(payload);
+  if (invalid) return Response.json({ error: invalid }, { status: 400 });
   try {
     const decision = persistDecision(payload, 'implement');
     try {
@@ -148,6 +168,8 @@ export async function handleImplement(payload: DecisionPayload): Promise<Respons
   }
 }
 export async function handleSave(payload: DecisionPayload): Promise<Response> {
+  const invalid = validateDecisionPayload(payload);
+  if (invalid) return Response.json({ error: invalid }, { status: 400 });
   try {
     const decision = persistDecision(payload, 'save');
     const rd: any = readFindings(); rd._decision = decision;
@@ -158,6 +180,8 @@ export async function handleSave(payload: DecisionPayload): Promise<Response> {
   }
 }
 export async function handleDone(payload: DecisionPayload): Promise<Response> {
+  const invalid = validateDecisionPayload(payload);
+  if (invalid) return Response.json({ error: invalid }, { status: 400 });
   try {
     const decision = persistDecision(payload, 'done');
     try {

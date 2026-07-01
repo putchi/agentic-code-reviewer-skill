@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Launch a fully backgrounded agentic code review run for a GitHub pull request.
+description: Start a background agentic code review of a GitHub pull request — returns immediately; results open in the review UI when ready. Requires gh.
 disable-model-invocation: true
 ---
 

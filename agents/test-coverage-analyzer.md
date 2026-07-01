@@ -29,6 +29,17 @@ Only report findings with confidence >=80:
 - **CRITICAL** (90-100): A real, plausible bug exists in the new code that has zero test coverage and will not be caught
 - **HIGH** (80-89): Important behavioral scenario is untested; a bug here would likely go undetected
 
+## Reporting Discipline
+
+Zero findings is a successful review. If nothing meets the bar at >=80 confidence, report none — do not stretch weak signals into findings.
+
+For every finding:
+- **Quote the evidence.** The `evidence` field must contain the exact changed line(s) from the diff (verbatim) whose behavior is untested. If you cannot quote the code, do not report it.
+- **Set `confidence`** (integer 0-100): the probability that a reasonable senior developer, seeing your evidence, would agree the gap is worth a test. Never omit it.
+- **Try to refute yourself first.** Check whether an existing test already covers the behavior (Grep the test files) before claiming a gap. If coverage exists, drop the finding.
+- **Severity restraint.** CRITICAL only when a real, plausible bug exists in the changed code with zero coverage. "It would be nice to test this" is HIGH at most, and usually not a finding.
+- **Missing context lowers confidence.** If you cannot see the test files, read them (Read/Grep/Glob) or lower confidence — never assume tests are missing just because they are not in the diff.
+
 ## Output Format
 
 For each finding:

@@ -43,6 +43,17 @@ Only report findings with confidence >=80:
 - **CRITICAL** (90-100): Will cause operational problems (silent errors, undebuggable failures, serious local performance issues) or violates a fundamental project convention that's clearly established.
 - **HIGH** (80-89): Meaningfully reduces maintainability or readability of this code; will cause friction for the next developer touching this file.
 
+## Reporting Discipline
+
+Zero findings is a successful review. If nothing meets the bar at >=80 confidence, report none — do not stretch weak signals into findings.
+
+For every finding:
+- **Quote the evidence.** The `evidence` field must contain the exact line(s) from the diff (verbatim) that demonstrate the problem. If you cannot quote code that shows the issue, do not report it.
+- **Set `confidence`** (integer 0-100): the probability that a reasonable senior developer, seeing your evidence, would agree this is worth fixing. Never omit it.
+- **Try to refute yourself first.** Check whether the pattern matches the project's established conventions (Grep for similar code) before flagging it. Consistent-with-codebase beats textbook-ideal.
+- **Severity restraint.** CRITICAL only for operational hazards (silent errors, undebuggable failures) in normal usage. Style and naming preferences cap at HIGH, and pure taste is not a finding.
+- **Missing context lowers confidence.** The diff may omit surrounding code. If confirming a finding needs code you cannot see, either read it (Read/Grep) or lower confidence — never assume unseen code is wrong.
+
 ## Output Format
 
 For each finding:

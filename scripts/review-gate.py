@@ -173,6 +173,36 @@ def resolve_stop_hook_mode(plugin_root: Path, project_config: dict[str, Any] | N
     return DEFAULT_STOP_HOOK_MODE
 
 
+SKIP_COUNTS_FILENAME = "skip-counts.json"
+SKIP_TIP_THRESHOLD = 3
+
+
+def skip_counts_path(plugin_root: Path) -> Path:
+    settings_paths = resolve_settings_paths(plugin_root)
+    return settings_paths[0].parent / SKIP_COUNTS_FILENAME
+
+
+def read_skip_count(plugin_root: Path, repo: Path) -> int:
+    data = read_json(skip_counts_path(plugin_root)) or {}
+    value = data.get(str(repo))
+    return value if isinstance(value, int) and value > 0 else 0
+
+
+def update_skip_count(plugin_root: Path, repo: Path, *, skipped: bool) -> int:
+    """Increment (on no/skip) or reset (on yes) the per-repo consecutive skip counter."""
+    path = skip_counts_path(plugin_root)
+    data = read_json(path) or {}
+    if not isinstance(data, dict):
+        data = {}
+    count = 0 if not skipped else read_skip_count(plugin_root, repo) + 1
+    data[str(repo)] = count
+    try:
+        write_json(path, data)
+    except Exception:
+        pass  # the counter is a UX hint only; never fail the gate over it
+    return count
+
+
 def write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -337,8 +367,11 @@ def claim_confirmation_response(repo: Path, session_id: str, current_diff_sha: s
         return True
     except FileExistsError:
         return False
-    except Exception:
-        return True
+    except Exception as exc:
+        # Failing to persist the claim marker must not look like a successful
+        # claim: processing the response anyway could double-consume a yes/no.
+        print(f"review-gate: could not write confirmation-response marker: {exc}", file=sys.stderr)
+        return False
 
 
 def post_resume_marker_paths(repo: Path, tmp_dir: Path = Path("/tmp")) -> list[Path]:
@@ -832,15 +865,22 @@ def emit_prompt(repo: Path, plugin_root: Path, session_id: str, current_diff_sha
     path_lines = [f"- {path}" for path in paths[:8]]
     if len(paths) > 8:
         path_lines.append(f"- and {len(paths) - 8} more")
-    reason = "\n".join([
+    lines = [
         "Agentic Code Reviewer is waiting for your confirmation.",
         "",
         "Reviewable code changes were detected.",
         *(["", "Changed paths:", *path_lines] if path_lines else []),
         "",
         "Reply yes/y to run the review, or no/n/skip to skip this diff.",
-    ])
-    emit_stop_reason(reason)
+    ]
+    skip_count = read_skip_count(plugin_root, repo)
+    if skip_count >= SKIP_TIP_THRESHOLD:
+        lines.extend([
+            "",
+            f"Tip: you've skipped the last {skip_count} review prompts here. "
+            "Run /acr-config to pause the review gate for this repo while you work.",
+        ])
+    emit_stop_reason("\n".join(lines))
 
 
 def emit_launch_failure(repo: Path | None, plugin_root: Path, message: str) -> None:
@@ -1111,7 +1151,14 @@ def handle_user_prompt_submit(raw_input: str, plugin_root: Path, cwd: Path) -> i
             return allow_stop()
         unlink_quietly(marker_path)
         mark_session_done(done_file(session_id), repo, session_id, current_hash, "prompt_declined")
-        emit_stop_reason("Agentic Code Reviewer skipped for this diff.")
+        skip_count = update_skip_count(plugin_root, repo, skipped=True)
+        message = "Agentic Code Reviewer skipped for this diff."
+        if skip_count >= SKIP_TIP_THRESHOLD:
+            message += (
+                f"\n\nTip: that's {skip_count} skips in a row for this repo. "
+                "Run /acr-config to pause the review gate while you work."
+            )
+        emit_stop_reason(message)
         return 0
 
     if response != "yes":
@@ -1124,6 +1171,8 @@ def handle_user_prompt_submit(raw_input: str, plugin_root: Path, cwd: Path) -> i
 
     if not claim_confirmation_response(repo, session_id, current_hash, "yes"):
         return allow_stop()
+
+    update_skip_count(plugin_root, repo, skipped=False)
 
     try:
         run_dir = launch_review(plugin_root, repo, fast_hook=False, disable_auto_resume=False)

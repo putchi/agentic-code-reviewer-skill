@@ -3,6 +3,7 @@ import { chatSessions, createChatSession, type ChatSession } from '../chat-sessi
 import { readFindings } from '../findings';
 import { buildChatSystemPrompt } from '../chat-context';
 import { resolveCLIPath, resolveCodexCLIPath } from '../cli-path';
+import { touchIdle } from '../timeout';
 
 export function handleChatSession(payload: { model?: string; currentFile?: string }): Response {
   const reviewData = readFindings();
@@ -44,10 +45,10 @@ export async function handleChatQuery(payload: { sessionId?: string; prompt?: st
 
   const stream = new ReadableStream({
     async start(ctrl) {
-      const emit = (obj: unknown) => ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const emit = (obj: unknown) => { touchIdle(); ctrl.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`)); };
       let closed = false;
       const keepalive = setInterval(() => {
-        if (!closed) ctrl.enqueue(enc.encode(': keepalive\n\n'));
+        if (!closed) { touchIdle(); ctrl.enqueue(enc.encode(': keepalive\n\n')); }
       }, 15_000);
       try {
         if (session.provider === 'codex') {

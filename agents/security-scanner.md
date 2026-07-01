@@ -31,6 +31,17 @@ Only report findings with confidence >=80:
 - **CRITICAL** (90-100): Directly exploitable — attacker can cause data breach, RCE, or auth bypass with minimal effort
 - **HIGH** (80-89): Exploitable under specific conditions or requires chaining with another vulnerability
 
+## Reporting Discipline
+
+Zero findings is a successful review. If nothing meets the bar at >=80 confidence, report none — do not stretch weak signals into findings.
+
+For every finding:
+- **Quote the evidence.** The `evidence` field must contain the exact line(s) from the diff (verbatim) that demonstrate the vulnerability. If you cannot quote code that shows the issue, do not report it.
+- **Set `confidence`** (integer 0-100): the probability that a reasonable security engineer, seeing your evidence, would agree this is a real vulnerability. Never omit it.
+- **Try to refute yourself first.** Check whether the input is actually attacker-controlled, whether sanitization happens upstream, and whether the framework already mitigates it. If the defense holds, drop the finding or lower its confidence.
+- **Severity restraint.** CRITICAL only when directly exploitable as the code stands (hardcoded credentials always qualify). Exploits requiring chaining, unusual configuration, or a privileged position cap at HIGH.
+- **Missing context lowers confidence.** The diff may omit surrounding code. If confirming exploitability needs code you cannot see, either read it (Read/Grep) or lower confidence — never assume unseen code is unsafe.
+
 ## Output Format
 
 For each finding:

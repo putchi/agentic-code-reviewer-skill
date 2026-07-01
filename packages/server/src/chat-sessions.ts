@@ -22,6 +22,17 @@ export interface ChatSession {
 export const chatSessions = new Map<string, ChatSession>();
 let counter = 0;
 
+// ponytail: simple FIFO cap; a single-user local server never needs real LRU
+const MAX_CHAT_SESSIONS = 20;
+function evictOldSessions(): void {
+  while (chatSessions.size > MAX_CHAT_SESSIONS) {
+    const oldest = chatSessions.keys().next().value;
+    if (oldest === undefined) break;
+    chatSessions.get(oldest)?.abortController?.abort();
+    chatSessions.delete(oldest);
+  }
+}
+
 export function resolveChatRuntime() {
   const metadata = buildRuntimeMetadata({ explicitPlatform: detectPlatform(), pluginRoot: PLUGIN_ROOT, modelRole: 'balanced' });
   return {
@@ -47,5 +58,6 @@ export function createChatSession(_model?: string, reviewData?: ReviewData, curr
     abortController: null,
     providerState: {},
   });
+  evictOldSessions();
   return id;
 }

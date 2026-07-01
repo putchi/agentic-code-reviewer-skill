@@ -219,10 +219,14 @@ class Orchestrator:
         path = self.run_dir / "agents" / f"{agent}.json"
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            # Only "complete" counts as success. A "failed" result (provider
+            # crash or schema validation error) must return False so the retry
+            # loop re-runs the reviewer; failed_reviewer() writes the final
+            # failed file once retries are exhausted.
             return (
                 data.get("run_id") == self.run_id
                 and data.get("agent") == agent
-                and data.get("status") in {"complete", "failed"}
+                and data.get("status") == "complete"
                 and isinstance(data.get("findings"), list)
             )
         except Exception:
@@ -241,7 +245,6 @@ class Orchestrator:
 
     def _spawn_reviewer(self, agent: str, feedback_file: str | None = None) -> subprocess.Popen[bytes]:
         script = self.plugin_root / "scripts" / "run-reviewer.sh"
-        log = open(self.run_dir / "agents" / f"{agent}.log", "ab")
         cmd = [
             "bash", str(script),
             "--run-id", self.run_id,
@@ -252,7 +255,10 @@ class Orchestrator:
         ]
         if feedback_file:
             cmd.extend(["--feedback", feedback_file])
-        return subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+        # The child inherits the log fd; close the parent copy right after spawn
+        # so retries/timeouts do not leak descriptors.
+        with open(self.run_dir / "agents" / f"{agent}.log", "ab") as log:
+            return subprocess.Popen(cmd, cwd=str(self.repo), stdout=log, stderr=subprocess.STDOUT, preexec_fn=os.setsid)
 
     def run_reviewers(self) -> None:
         self.update_run("reviewers_running", agents=AGENTS)
@@ -277,6 +283,12 @@ class Orchestrator:
                                 error_text = "unknown validation error"
                         else:
                             error_text = f"reviewer exited {proc.returncode} without valid result JSON"
+                            try:
+                                failed_json = json.loads((self.run_dir / "agents" / f"{agent}.json").read_text(encoding="utf-8"))
+                                if failed_json.get("error"):
+                                    error_text = str(failed_json["error"])
+                            except Exception:
+                                pass
                         state.attempts += 1
                         feedback_name = f"{agent}.retry-{state.attempts}.feedback.txt"
                         feedback_file = str(self.run_dir / "agents" / feedback_name)
@@ -299,6 +311,10 @@ class Orchestrator:
                             proc.kill()
                         except OSError:
                             pass
+                    try:
+                        proc.wait(timeout=5)  # reap; avoid zombies while orchestrator lives
+                    except Exception:
+                        pass
                     states[agent].status = "failed"
                     states[agent].error = "reviewer timed out"
                     self.failed_reviewer(agent, "reviewer timed out")
@@ -317,7 +333,10 @@ class Orchestrator:
         ]
         if feedback_file:
             cmd.extend(["--feedback", feedback_file])
-        proc = subprocess.run(cmd, cwd=str(self.repo), timeout=self.synthesis_timeout)
+        try:
+            proc = subprocess.run(cmd, cwd=str(self.repo), timeout=self.synthesis_timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"synthesizer timed out after {self.synthesis_timeout}s")
         if proc.returncode != 0:
             raise RuntimeError(f"synthesizer exited {proc.returncode}")
         data = json.loads((self.run_dir / "synthesis.json").read_text(encoding="utf-8"))
@@ -335,8 +354,15 @@ class Orchestrator:
             first_exc = exc
 
         # First attempt failed — retry once with feedback
+        feedback_text = str(first_exc)
+        sidecar = self.run_dir / "synthesis.json.validation-error.txt"
+        if sidecar.exists():
+            try:
+                feedback_text = sidecar.read_text(encoding="utf-8").strip() or feedback_text
+            except Exception:
+                pass
         feedback_file = str(self.run_dir / "synthesis.retry-1.feedback.txt")
-        Path(feedback_file).write_text(str(first_exc) + "\n", encoding="utf-8")
+        Path(feedback_file).write_text(feedback_text + "\n", encoding="utf-8")
         try:
             self._run_synthesizer(feedback_file)
             self.update_run("synthesis_complete")
@@ -345,7 +371,7 @@ class Orchestrator:
             final_exc = exc2
 
         agent_files = [f"agents/{agent}.json" for agent in AGENTS]
-        subprocess.run([
+        fallback = subprocess.run([
             "python3", str(self.plugin_root / "scripts" / "claude_json.py"),
             "synthesis-fallback",
             "--out-file", str(self.run_dir / "synthesis.json"),
@@ -353,7 +379,14 @@ class Orchestrator:
             "--verdict", "Review synthesis failed. Inspect the run log before making decisions from this run.",
             "--error", str(final_exc),
             "--agent-files", *agent_files,
-        ], check=False)
+        ], check=False, cwd=str(self.run_dir), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if fallback.returncode != 0:
+            self.update_run(
+                "synthesis_failed",
+                error=str(final_exc),
+                fallback_error=f"synthesis-fallback exited {fallback.returncode}: {(fallback.stdout or '').strip()[:500]}",
+            )
+            return False
         self.update_run("synthesis_failed", error=str(final_exc))
         return False
 

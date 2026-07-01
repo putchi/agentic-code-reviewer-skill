@@ -216,6 +216,17 @@ When the optional VS Code extension is installed and active in the workspace, Ag
 
 This runs on Claude Code through the user-level enabled plugin and on Codex through `~/.codex/hooks.json`. It has no Copilot CLI equivalent.
 
+### Configuring / pausing reviews with `/acr-config`
+
+The `acr-config` skill (`/acr-config` on Claude Code, or ask Codex to "configure code review" / "pause code reviews") creates or updates `.acr.json` for you. Typical uses:
+
+- "Stop reviewing, I'm still working" → sets `"stopHookMode": "disabled"` (re-enable later with `"prompt"`).
+- "Never review this repo" → sets `"disableStopHook": true`.
+- "Don't review migrations/generated code" → proposes `outOfScope` globs based on your project layout.
+- "Reviews are too slow" → suggests `models` overrides and scope pruning.
+
+If you decline the prompt-mode review gate 3+ times in a row for the same repo, the gate's messages start suggesting `/acr-config` (tracked in `~/.claude/agentic-code-reviewer/skip-counts.json`; answering `yes` resets the counter).
+
 Projects can commit a root-level `.acr.json` repo config to control review behaviour:
 
 ```json

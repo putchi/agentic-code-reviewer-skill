@@ -21,7 +21,11 @@ export async function readChatEventStream(
     }
     try {
       onEvent(JSON.parse(data));
-    } catch {}
+    } catch {
+      // Surface malformed server events instead of silently dropping them
+      console.warn('[ACR] malformed chat stream event:', data);
+      onEvent({ type: 'error', message: 'Received a malformed event from the server.' });
+    }
     return false;
   };
 

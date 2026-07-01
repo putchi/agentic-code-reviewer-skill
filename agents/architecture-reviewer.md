@@ -41,6 +41,17 @@ Only report findings with confidence >=80:
 - **CRITICAL** (90-100): Fundamental architectural flaw — will actively impede future development, cause cascading changes across modules, or break consumers of a public contract.
 - **HIGH** (80-89): Significant system-level design smell — accumulates structural debt that becomes painful within a few iterations.
 
+## Reporting Discipline
+
+Zero findings is a successful review. If nothing meets the bar at >=80 confidence, report none — do not stretch weak signals into findings.
+
+For every finding:
+- **Quote the evidence.** The `evidence` field must contain the exact line(s) from the diff (verbatim) that demonstrate the structural problem. If you cannot quote code that shows the issue, do not report it.
+- **Set `confidence`** (integer 0-100): the probability that a reasonable senior architect, seeing your evidence, would agree this is a real issue worth fixing. Never omit it.
+- **Try to refute yourself first.** Consider whether the design is an intentional, reasonable trade-off for this codebase's size and stage. If the defense holds, drop the finding or lower its confidence.
+- **Severity restraint.** CRITICAL only for flaws that will demonstrably impede development or break consumers. Speculative future-proofing concerns cap at HIGH or should be dropped.
+- **Missing context lowers confidence.** The diff may omit surrounding code. If confirming a finding needs modules you cannot see, either read them (Read/Grep/Glob) or lower confidence — never assume unseen structure is wrong.
+
 ## Output Format
 
 For each finding:

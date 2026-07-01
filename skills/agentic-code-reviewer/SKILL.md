@@ -10,8 +10,11 @@ description: >
 
 # Agentic Code Review
 
-This skill is now architecture documentation. Runtime review execution is owned
-by the process-based orchestrator in `scripts/`.
+This skill launches a fully backgrounded code review of the current git diff:
+5 specialist reviewer processes in parallel, a synthesizer judge pass, and a
+local review UI for triaging findings. Runtime review execution is owned by the
+process-based orchestrator in `scripts/`; the rest of this document is the
+architecture reference for that runtime.
 
 ## Runtime Model
 

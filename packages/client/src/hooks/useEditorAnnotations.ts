@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-const POLL_INTERVAL = 500;
+const POLL_INTERVAL = 2000;
 
 function isVSCodeWebview(): boolean {
   return typeof window !== 'undefined' && window.__ACR_VSCODE === true;

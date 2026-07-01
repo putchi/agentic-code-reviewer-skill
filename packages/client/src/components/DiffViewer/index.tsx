@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Finding, FindingAction } from '@acr/shared';
 import type { LineAnnotation } from '@acr/shared';
 import { parseDiff } from '../../lib/diff';
@@ -41,7 +41,8 @@ export default function DiffViewer({
   const [showLabel, setShowLabel] = useState(false);
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
 
-  const rows = file ? parseDiff(diffText) : [];
+  // Memoized: large diffs re-parsing on every annotation/selection state change is the main render cost
+  const rows = useMemo(() => (file ? parseDiff(diffText) : []), [file, diffText]);
 
   function clearSelection() {
     setSelection(null);

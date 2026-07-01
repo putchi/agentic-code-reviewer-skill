@@ -14,7 +14,11 @@ export function buildChatSystemPrompt(reviewData: ReviewData, currentFile?: stri
   const parts: string[] = [];
   for (const f of (reviewData.files || [])) if (f.diff) parts.push(`--- ${f.path}\n${f.diff}`);
   let fullDiff = parts.join('\n\n');
-  if (fullDiff.length > 40000) fullDiff = fullDiff.slice(0, 40000) + '\n...(truncated)';
+  const truncated = fullDiff.length > 40000;
+  if (truncated) fullDiff = fullDiff.slice(0, 40000) + '\n...[diff truncated at 40KB — later files are not visible to you]';
   lines.push(fullDiff, '```');
+  if (truncated) {
+    lines.push('', 'Note: the diff above was truncated at 40KB. If asked about code you cannot see, say so rather than guessing.');
+  }
   return lines.join('\n');
 }

@@ -26,6 +26,12 @@ function readRunMeta(): { repo: string; runId: string } {
   }
 }
 
+// Shell-safe single quoting for command strings embedded in agent prompts —
+// these are agent-executed text, so quote defensively like decisions.ts does.
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 function buildPrompt(repo: string, reviewRunId: string): string {
   const resumeScript = resolve(PLUGIN_ROOT, 'scripts', 'review-resume.sh');
   return [
@@ -33,7 +39,7 @@ function buildPrompt(repo: string, reviewRunId: string): string {
     'Resume immediately from those decisions and complete the requested work.',
     '',
     'First run this command and read its output:',
-    `bash "${resumeScript}" --repo "${repo}" --run-id "${reviewRunId}"`,
+    `bash ${shellQuote(resumeScript)} --repo ${shellQuote(repo)} --run-id ${shellQuote(reviewRunId)}`,
     '',
     'Then follow the printed instructions exactly.',
     'Implement only findings marked for implementation or accepted fix.',
@@ -44,7 +50,7 @@ function buildPrompt(repo: string, reviewRunId: string): string {
 
 function buildFallbackCommand(repo: string, reviewRunId: string): string {
   const resumeScript = resolve(PLUGIN_ROOT, 'scripts', 'review-resume.sh');
-  return `bash "${resumeScript}" --repo "${repo}" --run-id "${reviewRunId}"`;
+  return `bash ${shellQuote(resumeScript)} --repo ${shellQuote(repo)} --run-id ${shellQuote(reviewRunId)}`;
 }
 
 function writeAutoResumeState(result: AutoResumeResult) {
