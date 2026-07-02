@@ -182,11 +182,16 @@ Flags:
   -y, --yes, --force   Skip all "Replace existing install?" prompts and overwrite
                        any existing Claude Code plugin and/or Codex skill in place.
                        Recommended for the curl one-liner and CI runs.
+  --reinstall          Reinstall even when the installed version already matches
+                       this version. Implies --force. Without it, up-to-date
+                       platforms are skipped.
 EOF
 }
 
 PLATFORM=""
 FORCE=0
+REINSTALL=0
+INSTALLED_ANY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -199,6 +204,11 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -y|--yes|--force)
+      FORCE=1
+      shift
+      ;;
+    --reinstall)
+      REINSTALL=1
       FORCE=1
       shift
       ;;
@@ -233,6 +243,19 @@ except Exception:
     value = ""
 print(value)
 PY
+}
+
+# True when an existing install already matches this repo's version and has a
+# server binary. --reinstall bypasses the check.
+already_up_to_date() {
+  local installed_tree="$1"
+  local new_version installed_version
+  [ "$REINSTALL" = "1" ] && return 1
+  [ -f "$installed_tree/.claude-plugin/plugin.json" ] || return 1
+  [ -x "$installed_tree/dist/review-server" ] || return 1
+  new_version="$(json_value "$ROOT_DIR/.claude-plugin/plugin.json" version 2>/dev/null || true)"
+  installed_version="$(json_value "$installed_tree/.claude-plugin/plugin.json" version 2>/dev/null || true)"
+  [ -n "$new_version" ] && [ "$new_version" = "$installed_version" ]
 }
 
 copy_repo_tree() {
@@ -392,6 +415,12 @@ install_codex_skill() {
   fi
 
   ui_header "Codex skill"
+
+  if already_up_to_date "$target_dir"; then
+    ui_step "Already up to date (v$(json_value "$target_dir/.claude-plugin/plugin.json" version)) — skipping"
+    return 0
+  fi
+  INSTALLED_ANY=1
 
   if [ -e "$target_dir" ]; then
     if [ "$FORCE" = "1" ]; then
@@ -555,6 +584,12 @@ install_claude_plugin() {
 
   ui_header "Claude Code plugin"
 
+  if already_up_to_date "$marketplace_dir" && [ -x "$cache_dir/dist/review-server" ]; then
+    ui_step "Already up to date (v$plugin_version) — skipping"
+    return 0
+  fi
+  INSTALLED_ANY=1
+
   if [ -e "$marketplace_dir" ] || [ -e "$cache_dir" ]; then
     if [ "$FORCE" = "1" ]; then
       ui_info "Overwriting existing install (--force)"
@@ -664,4 +699,9 @@ case "$PLATFORM" in
     ;;
 esac
 
-printf "\n%s✔ Done.%s\n" "${C_GREEN}${C_BOLD}" "$C_RESET"
+if [ "$INSTALLED_ANY" = "1" ]; then
+  printf "\n%s✔ Done.%s\n" "${C_GREEN}${C_BOLD}" "$C_RESET"
+else
+  printf "\n%s✔ Agentic Code Reviewer is already up to date — nothing to do.%s %s(use --reinstall to force)%s\n" \
+    "${C_GREEN}${C_BOLD}" "$C_RESET" "$C_DIM" "$C_RESET"
+fi
