@@ -82,18 +82,31 @@ export async function processSDKMessages(
   session: Pick<ChatSession, 'resolvedSessionId'>,
   emit: (obj: unknown) => void,
 ): Promise<void> {
+  let sawText = false;
   for await (const msg of messages) {
     if ((msg as any).type === 'result') {
       if ((msg as any).session_id && !session.resolvedSessionId) {
         session.resolvedSessionId = (msg as any).session_id as string;
       }
-      emit({ type: 'result', success: (msg as any).subtype === 'success' });
+      const subtype = (msg as any).subtype;
+      // A run that ends without any streamed text renders as an empty bubble
+      // in the UI — surface it as an error instead of finishing silently.
+      if (!sawText) {
+        emit({
+          type: 'error',
+          message: subtype === 'success'
+            ? 'The assistant finished without producing a reply. Try asking again.'
+            : `The assistant finished without producing a reply (${subtype || 'unknown error'}). Try asking again.`,
+        });
+      }
+      emit({ type: 'result', success: subtype === 'success' });
       break;
     } else if ((msg as any).type === 'assistant') {
       const content = (msg as any).message?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === 'text' && block.text) {
+            sawText = true;
             emit({ type: 'text_delta', delta: block.text });
           }
         }
@@ -101,6 +114,7 @@ export async function processSDKMessages(
     } else if ((msg as any).type === 'stream_event') {
       const delta = (msg as any).event?.delta;
       if (delta?.type === 'text_delta' && delta.text) {
+        sawText = true;
         emit({ type: 'text_delta', delta: delta.text });
       }
     } else if ((msg as any).error) {
@@ -120,7 +134,10 @@ async function streamClaudeChat(
     prompt: effectivePrompt,
     options: {
       model: session.model,
-      maxTurns: 3,
+      // 3 turns was too few: on PR reviews the model burns turns on tool calls
+      // against a working tree that doesn't match the PR head and hits
+      // error_max_turns with zero text.
+      maxTurns: 8,
       cwd: process.cwd(),
       abortController: abort,
       ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),

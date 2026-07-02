@@ -11,6 +11,13 @@ export interface Finding {
   source_agents?: string[];
 }
 export interface FileEntry { path: string; diff: string; add?: number; del?: number; }
+export interface PullRequestInfo {
+  number?: number;
+  title?: string;
+  url?: string;
+  headRefName?: string;
+  baseRefName?: string;
+}
 export interface ReviewerResult {
   agent: string;
   status: 'complete' | 'failed';
@@ -33,4 +40,5 @@ export interface ReviewData {
   synthesisStatus?: string;
   resumeCommand?: string;
   recommendedNextActions?: string[];
+  pr?: PullRequestInfo | null;
 }

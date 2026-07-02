@@ -3,7 +3,8 @@ name: agentic-code-reviewer
 description: >
   Launches a fully backgrounded local code-review run for the current repo. Use
   when the user asks to run code-review, run the code-reviewer skill, run the
-  agentic-code-reviewer skill, or run a code review on this repo. The launcher
+  agentic-code-reviewer skill, run a code review on this repo, or code-review a
+  GitHub pull request (e.g. "code-review PR #42"). The launcher
   starts an external orchestrator and returns immediately; reviewer and synthesis
   work happens in separate non-interactive provider CLI processes.
 ---
@@ -28,7 +29,12 @@ launch this skill.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/orchestrator.sh" --repo "$(pwd)"
 ```
 
-`/pr-review <number-or-url>` runs the same launcher with `--pr "$ARGUMENTS"`.
+`/code-review <number-or-url>` and `/pr-review <number-or-url>` run the same
+launcher with `--pr "$ARGUMENTS"`. Requests like `code-review PR #42` or
+`review PR 42 with the agentic code reviewer` should launch this skill's PR
+mode — results open in the review UI, never inline in the terminal. (Note:
+Anthropic's separate official `code-review` plugin also reviews PRs, inline
+with a confidence threshold; that is a different tool, not this skill.)
 
 On Codex, `CLAUDE_PLUGIN_ROOT` is not set. Resolve the installed skill root
 before launching:

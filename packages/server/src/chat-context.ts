@@ -4,6 +4,15 @@ export function buildChatSystemPrompt(reviewData: ReviewData, currentFile?: stri
   const lines: string[] = [];
   lines.push('You are a code review assistant. The user is reviewing a git diff and has questions.');
   lines.push('Answer concisely based on the diff and findings below.');
+  const pr = reviewData.pr;
+  if (pr && (pr.number || pr.url)) {
+    lines.push('', '## Pull Request');
+    lines.push(`This review is of PR #${pr.number ?? '?'}${pr.title ? ` — ${pr.title}` : ''} (${pr.url || 'no url'}), merging ${pr.headRefName || '?'} into ${pr.baseRefName || '?'}.`);
+    lines.push('The local working tree may NOT match the PR head — do not trust local file reads for changed files.');
+    if (pr.headRefName) {
+      lines.push(`To read a full file at the PR head, run \`git fetch origin ${pr.headRefName}\` then \`git show FETCH_HEAD:<path>\`${pr.number ? `, or \`gh pr view ${pr.number}\` / \`gh pr diff ${pr.number}\` for metadata` : ''}. Otherwise answer from the embedded diff below.`);
+    }
+  }
   lines.push('', '## Verdict', reviewData.verdict || '(no verdict)', '');
   lines.push('## Findings');
   for (const f of (reviewData.findings || []).slice(0, 10)) {

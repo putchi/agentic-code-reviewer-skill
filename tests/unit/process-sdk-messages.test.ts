@@ -69,6 +69,44 @@ describe('processSDKMessages', () => {
     expect(session.resolvedSessionId).toBe('original');
   });
 
+  test('emits error when the run ends with no text (e.g. error_max_turns)', async () => {
+    const emitted: any[] = [];
+    const session = { resolvedSessionId: null as string | null };
+    await processSDKMessages(
+      makeStream({ type: 'result', subtype: 'error_max_turns', session_id: 'sess-1' }),
+      session,
+      e => emitted.push(e),
+    );
+    expect(emitted.map(e => e.type)).toEqual(['error', 'result']);
+    expect(emitted[0].message).toContain('error_max_turns');
+    expect(emitted[1].success).toBe(false);
+  });
+
+  test('emits error when a successful run streamed no text', async () => {
+    const emitted: any[] = [];
+    const session = { resolvedSessionId: null as string | null };
+    await processSDKMessages(
+      makeStream({ type: 'result', subtype: 'success' }),
+      session,
+      e => emitted.push(e),
+    );
+    expect(emitted.map(e => e.type)).toEqual(['error', 'result']);
+  });
+
+  test('does not emit error when text was streamed before result', async () => {
+    const emitted: any[] = [];
+    const session = { resolvedSessionId: null as string | null };
+    await processSDKMessages(
+      makeStream(
+        { type: 'stream_event', event: { delta: { type: 'text_delta', text: 'hi' } } },
+        { type: 'result', subtype: 'success' },
+      ),
+      session,
+      e => emitted.push(e),
+    );
+    expect(emitted.map(e => e.type)).toEqual(['text_delta', 'result']);
+  });
+
   test('emits error event for messages with error field', async () => {
     const emitted: unknown[] = [];
     const session = { resolvedSessionId: null as string | null };

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { REVIEW_AGENTS, validateRawReviewerResult, validateSynthesisResult } from '@acr/shared';
-import type { DecisionsFile, FileEntry, LineAnnotation, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
+import type { DecisionsFile, FileEntry, LineAnnotation, PullRequestInfo, RawReviewerResult, ReviewData, ReviewerResult, RunContext, SynthesisResult } from '@acr/shared';
 import { findingsFile, runDir, saveDir, sessionId } from './config';
 
 function parseJsonFile<T>(file: string | null): T | null {
@@ -172,6 +172,7 @@ export function readReviewFromRunDir(dir: string): ReviewData | null {
     synthesisStatus: readRunStatus(runPath),
     resumeCommand: `/review-resume ${synthesis.run_id}`,
     recommendedNextActions: synthesis.recommended_next_actions || [],
+    pr: (context?.pr as PullRequestInfo | null) || null,
   };
 }
 

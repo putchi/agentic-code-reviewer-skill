@@ -35,6 +35,25 @@ describe('chat-sessions', () => {
     expect(out).not.toContain('F10');
   });
 
+  test('buildChatSystemPrompt includes PR section for PR runs', () => {
+    const rd: ReviewData = {
+      verdict: 'V1', findings: [], files: [], summary: '', timestamp: '', branch: '', sessionId: 's',
+      pr: { number: 42, title: 'Fix things', url: 'https://github.com/o/r/pull/42', headRefName: 'fix-things', baseRefName: 'main' },
+    } as any;
+    const out = buildChatSystemPrompt(rd);
+    expect(out).toContain('## Pull Request');
+    expect(out).toContain('PR #42');
+    expect(out).toContain('git fetch origin fix-things');
+    expect(out).toContain('may NOT match the PR head');
+  });
+
+  test('buildChatSystemPrompt omits PR section for local runs', () => {
+    const rd: ReviewData = {
+      verdict: 'V1', findings: [], files: [], summary: '', timestamp: '', branch: '', sessionId: 's',
+    } as any;
+    expect(buildChatSystemPrompt(rd)).not.toContain('## Pull Request');
+  });
+
   test('createChatSession selects Codex provider from override', () => {
     process.env.ACR_REVIEW_PROVIDER = 'codex';
     const id = createChatSession();
