@@ -10,6 +10,100 @@ else
   ROOT_DIR="$(pwd)"
 fi
 
+# --- UI helpers ------------------------------------------------------------
+# Colors/spinner degrade to plain text when stderr is not a terminal (CI, logs).
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  UI_TTY=1
+  C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'; C_CYAN=$'\033[36m'; C_RESET=$'\033[0m'
+else
+  UI_TTY=0
+  C_BOLD=""; C_DIM=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_CYAN=""; C_RESET=""
+fi
+
+ui_header() { printf "\n%s%s%s\n" "$C_BOLD" "$1" "$C_RESET"; }
+ui_step()   { printf "  %s✓%s %s\n" "$C_GREEN" "$C_RESET" "$1"; }
+ui_info()   { printf "  %s•%s %s\n" "$C_DIM" "$C_RESET" "$1"; }
+ui_warn()   { printf "  %s!%s %s\n" "$C_YELLOW" "$C_RESET" "$1" >&2; }
+ui_path()   { printf "    %s%s%s\n" "$C_DIM" "$1" "$C_RESET"; }
+
+# Run a command behind an animated spinner; prints ✓ on success, ✗ + output on failure.
+ui_run() {
+  local label="$1"; shift
+  if [ "$UI_TTY" != "1" ]; then
+    "$@"
+    ui_step "$label"
+    return 0
+  fi
+  local out rc=0
+  out="$(mktemp)"
+  ( "$@" ) >"$out" 2>&1 &
+  local pid=$!
+  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏') i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  %s%s%s %s" "$C_CYAN" "${frames[i % 10]}" "$C_RESET" "$label" >&2
+    i=$((i + 1))
+    sleep 0.08
+  done
+  wait "$pid" || rc=$?
+  if [ "$rc" = "0" ]; then
+    printf "\r  %s✓%s %s\n" "$C_GREEN" "$C_RESET" "$label" >&2
+  else
+    printf "\r  %s✗%s %s\n" "$C_RED" "$C_RESET" "$label" >&2
+    cat "$out" >&2
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
+# Download url to dest with a modern progress bar (━━━╸─── 62% · 24.1 MB).
+# Falls back to a byte counter when the server doesn't send Content-Length,
+# and to silent curl when not on a terminal.
+ui_download() {
+  local url="$1" dest="$2" label="$3"
+  if [ "$UI_TTY" != "1" ]; then
+    curl -fsSL "$url" -o "$dest" 2>/dev/null
+    return $?
+  fi
+
+  local total
+  total="$(curl -fsIL "$url" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-length:"{n=$2} END{print n+0}')"
+  [ -n "$total" ] || total=0
+
+  curl -fsSL "$url" -o "$dest" 2>/dev/null &
+  local pid=$! width=28 rc=0
+
+  while kill -0 "$pid" 2>/dev/null; do
+    local cur=0
+    if [ -f "$dest" ]; then
+      cur="$(stat -f%z "$dest" 2>/dev/null || stat -c%s "$dest" 2>/dev/null || echo 0)"
+    fi
+    local mb
+    mb="$(awk -v b="$cur" 'BEGIN{printf "%.1f", b/1048576}')"
+    if [ "$total" -gt 0 ]; then
+      local filled=$((cur * width / total)) pct=$((cur * 100 / total)) bar="" i=0
+      while [ $i -lt $filled ]; do bar="${bar}━"; i=$((i + 1)); done
+      printf "\r  %s↓%s %s %s%s%s%s%s%s %d%% · %s MB\033[K" \
+        "$C_CYAN" "$C_RESET" "$label" \
+        "$C_CYAN" "$bar" "$C_RESET" \
+        "$C_DIM" "$(printf '%*s' $((width - filled)) '' | sed 's/ /─/g')" "$C_RESET" \
+        "$pct" "$mb" >&2
+    else
+      printf "\r  %s↓%s %s %s%s MB%s\033[K" "$C_CYAN" "$C_RESET" "$label" "$C_DIM" "$mb" "$C_RESET" >&2
+    fi
+    sleep 0.1
+  done
+  wait "$pid" || rc=$?
+
+  if [ "$rc" = "0" ]; then
+    printf "\r  %s✓%s %s\033[K\n" "$C_GREEN" "$C_RESET" "$label" >&2
+  else
+    printf "\r  %s✗%s %s\033[K\n" "$C_RED" "$C_RESET" "$label" >&2
+  fi
+  return "$rc"
+}
+# ---------------------------------------------------------------------------
+
 read_prompt() {
   local var_name="$1"
   local prompt="$2"
@@ -51,8 +145,13 @@ bootstrap_from_remote() {
   }
   trap cleanup EXIT
 
-  echo "Downloading Agentic Code Reviewer from ${repo}@${ref}..."
-  curl -fsSL "$archive_url" | tar -xz -C "$tmp_dir" --strip-components=1
+  ui_header "Agentic Code Reviewer"
+  if ! ui_download "$archive_url" "$tmp_dir/source.tar.gz" "Source (${repo}@${ref})"; then
+    echo "Error: could not download ${archive_url}" >&2
+    exit 1
+  fi
+  tar -xzf "$tmp_dir/source.tar.gz" -C "$tmp_dir" --strip-components=1
+  rm -f "$tmp_dir/source.tar.gz"
 
   if [ ${#ORIGINAL_ARGS[@]} -gt 0 ]; then
     AGENTIC_REVIEWER_BOOTSTRAPPED=1 bash "$tmp_dir/install.sh" "${ORIGINAL_ARGS[@]}"
@@ -168,10 +267,10 @@ download_server_binary() {
   local tag
 
   if [ -x "$local_binary" ]; then
-    echo "Installing local server binary from $local_binary."
     mkdir -p "$target_dir/dist"
     cp "$local_binary" "$target_dir/dist/review-server"
     chmod +x "$target_dir/dist/review-server"
+    ui_step "Server binary installed (local build)"
     return 0
   fi
 
@@ -195,20 +294,18 @@ download_server_binary() {
         *)             platform="linux-x64" ;;
       esac ;;
     *)
-      echo "Warning: unsupported platform — server binary not downloaded. Run 'bun install && bun run build && bun run compile' manually." >&2
+      ui_warn "Unsupported platform — server binary not downloaded. Run 'bun install && bun run build && bun run compile' manually."
       return 0 ;;
   esac
 
   local binary_name="review-server-${platform}"
   local base_url="https://github.com/putchi/agentic-code-reviewer-skill/releases/download/${tag}"
 
-  echo "Downloading server binary (${platform}, ${tag})…"
   mkdir -p "$target_dir/dist"
-  if curl -fsSL "${base_url}/${binary_name}" -o "$target_dir/dist/review-server" 2>/dev/null; then
+  if ui_download "${base_url}/${binary_name}" "$target_dir/dist/review-server" "Server binary (${platform}, ${tag})"; then
     chmod +x "$target_dir/dist/review-server"
-    echo "Server binary installed."
   else
-    echo "Warning: could not download server binary (release ${tag} may not exist yet). Run 'bun install && bun run build && bun run compile' manually." >&2
+    ui_warn "Could not download server binary (release ${tag} may not exist yet). Run 'bun install && bun run build && bun run compile' manually."
   fi
 }
 
@@ -256,11 +353,11 @@ register_codex_review_hooks() {
     --hooks-file "$hooks_file" \
     --config-file "$config_file" >/dev/null
 
-  echo "Registered Codex review hooks:"
-  echo "  $hooks_file"
-  echo "Enabled Codex hooks feature:"
-  echo "  $config_file"
-  echo "If Codex asks for hook trust, review/approve it with /hooks."
+  ui_step "Codex review hooks registered"
+  ui_path "$hooks_file"
+  ui_step "Codex hooks feature enabled"
+  ui_path "$config_file"
+  ui_info "If Codex asks for hook trust, review/approve it with /hooks."
 }
 
 install_codex_skill() {
@@ -294,9 +391,11 @@ install_codex_skill() {
     exit 1
   fi
 
+  ui_header "Codex skill"
+
   if [ -e "$target_dir" ]; then
     if [ "$FORCE" = "1" ]; then
-      echo "Overwriting existing Codex install at $target_dir (--force)."
+      ui_info "Overwriting existing install (--force)"
     else
       if ! read_prompt CONFIRM "Replace existing install at $target_dir? [y/N] "; then
         echo "Install cancelled."
@@ -306,8 +405,8 @@ install_codex_skill() {
         y|Y|yes|YES) ;;
         *)
           if [ "$on_decline" = "skip" ]; then
-            echo "Skipped Agentic Code Reviewer for codex:"
-            echo "  $target_dir"
+            ui_info "Skipped Codex install"
+            ui_path "$target_dir"
             return 0
           fi
           echo "Install cancelled."
@@ -317,14 +416,14 @@ install_codex_skill() {
     fi
   fi
 
-  copy_repo_tree "$target_dir"
+  ui_run "Skill files copied" copy_repo_tree "$target_dir"
   verify_review_last_surface "$target_dir"
   chmod +x "$target_dir/scripts/"*.sh "$target_dir/scripts/"*.py 2>/dev/null || true
   download_server_binary "$target_dir"
   register_codex_review_hooks
 
-  echo "Installed Agentic Code Reviewer for codex:"
-  echo "  $target_dir"
+  ui_step "${C_BOLD}Codex skill installed${C_RESET}"
+  ui_path "$target_dir"
 }
 
 update_claude_plugin_settings() {
@@ -454,9 +553,11 @@ install_claude_plugin() {
   local settings_file="$claude_dir/settings.json"
   local known_marketplaces_file="$plugin_root/known_marketplaces.json"
 
+  ui_header "Claude Code plugin"
+
   if [ -e "$marketplace_dir" ] || [ -e "$cache_dir" ]; then
     if [ "$FORCE" = "1" ]; then
-      echo "Overwriting existing Claude Code plugin install (--force)."
+      ui_info "Overwriting existing install (--force)"
     else
       if ! read_prompt CONFIRM "Replace existing Claude plugin install for Agentic Code Reviewer? [y/N] "; then
         echo "Install cancelled."
@@ -466,8 +567,8 @@ install_claude_plugin() {
         y|Y|yes|YES) ;;
         *)
           if [ "$on_decline" = "skip" ]; then
-            echo "Skipped Agentic Code Reviewer for claude:"
-            echo "  $marketplace_dir"
+            ui_info "Skipped Claude Code plugin install"
+            ui_path "$marketplace_dir"
             return 0
           fi
           echo "Install cancelled."
@@ -477,7 +578,7 @@ install_claude_plugin() {
     fi
   fi
 
-  copy_repo_tree "$marketplace_dir"
+  ui_run "Plugin files copied (v${plugin_version})" copy_repo_tree "$marketplace_dir"
   verify_review_last_surface "$marketplace_dir"
 
   # Remove stale versioned cache dirs so old manifests don't cause validation errors on reload.
@@ -486,7 +587,7 @@ install_claude_plugin() {
     find "$cache_plugin_root" -mindepth 1 -maxdepth 1 -type d ! -name "$plugin_version" -exec rm -rf {} +
   fi
 
-  copy_repo_tree "$cache_dir"
+  ui_run "Plugin cache updated" copy_repo_tree "$cache_dir"
   verify_review_last_surface "$cache_dir"
 
   download_server_binary "$marketplace_dir"
@@ -500,17 +601,21 @@ install_claude_plugin() {
   update_claude_plugin_settings "$settings_file" "$known_marketplaces_file" "$marketplace_dir"
   remove_legacy_claude_skill
 
-  echo "Installed Agentic Code Reviewer for claude as a Claude Code plugin:"
-  echo "  $cache_dir"
-  echo "Run /reload-plugins in active Claude Code sessions."
+  ui_step "${C_BOLD}Claude Code plugin installed${C_RESET}"
+  ui_path "$cache_dir"
+  ui_info "Run /reload-plugins in active Claude Code sessions."
 }
+
+if [ "${AGENTIC_REVIEWER_BOOTSTRAPPED:-}" != "1" ]; then
+  ui_header "Agentic Code Reviewer"
+fi
 
 if [ -z "$PLATFORM" ]; then
   if ! codex_is_installed; then
-    echo "Codex not detected — installing for Claude Code only."
+    ui_info "Codex not detected — installing for Claude Code only."
     PLATFORM="claude"
   elif [ "$FORCE" = "1" ]; then
-    echo "Codex detected; --force set without --platform → installing for both (claude + codex)."
+    ui_info "Codex detected; --force set without --platform → installing for both."
     PLATFORM="both"
   else
     echo "Install Agentic Code Reviewer for:"
@@ -546,7 +651,7 @@ case "$PLATFORM" in
     ;;
   both)
     if ! codex_is_installed; then
-      echo "Codex not detected — skipping Codex install, installing Claude Code only."
+      ui_info "Codex not detected — skipping Codex install, installing Claude Code only."
       install_claude_plugin
     else
       install_claude_plugin skip
@@ -558,3 +663,5 @@ case "$PLATFORM" in
     exit 1
     ;;
 esac
+
+printf "\n%s✔ Done.%s\n" "${C_GREEN}${C_BOLD}" "$C_RESET"
