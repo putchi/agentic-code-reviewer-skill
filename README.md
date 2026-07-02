@@ -108,6 +108,14 @@ curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/
 
 `--force` also removes any legacy manual install at `~/.claude/plugins/agentic-code-reviewer/` without asking. If you pass `--force` without `--platform` and Codex is detected, the installer auto-picks `both`.
 
+The installer detects the installed version per platform and skips any platform that is already on the current version (even with `--force`), so rerunning the one-liner is cheap. If only one platform is outdated, only that one is reinstalled; if both are current it reports "already up to date" and exits. To force a reinstall of the same version (e.g. to repair a broken install), add `--reinstall`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/putchi/agentic-code-reviewer-skill/main/install.sh | bash -s -- --platform both --reinstall
+```
+
+`--reinstall` implies `--force`.
+
 **Option B — from a local clone:**
 
 ```bash
