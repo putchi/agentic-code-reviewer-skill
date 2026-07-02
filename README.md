@@ -302,14 +302,17 @@ Cost controls: when all five reviewers complete with zero findings the synthesiz
 
 ## Screenshots
 
+### Code Review Results
+![Code Review Results tab — synthesized verdict with severity counts and per-reviewer agent groups showing each agent's status and findings](docs/screenshots/results-view.png)
+
 ### Full review UI
-![Full review UI — three-panel layout with findings list, diff viewer, and comments panel](docs/screenshots/review-ui.png)
+![Full review UI — three-panel layout with findings list, Code Review Results, and comments panel with a finding marked Ask to implement](docs/screenshots/review-ui.png)
 
 ### Annotation toolstrip and diff viewer
-![Diff viewer with annotation toolstrip showing Select, Pinpoint, Markup, Comment, Redline, and Label modes](docs/screenshots/annotation.png)
+![Code Diff tab with annotation toolstrip showing Select, Pinpoint, Markup, Comment, Redline, and Label modes, and an inline comment popover on a diff line](docs/screenshots/annotation.png)
 
 ### Ask AI chat panel
-![Ask AI tab in the right panel with a chat input ready to query the active AI provider about the diff](docs/screenshots/chat-panel.png)
+![Ask AI tab in the right panel with suggested prompts and a chat input ready to query the active AI provider about the diff](docs/screenshots/chat-panel.png)
 
 ## Project layout
 

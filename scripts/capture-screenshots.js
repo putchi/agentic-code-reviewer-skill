@@ -15,6 +15,29 @@ const SCREENSHOTS_DIR = path.join(__dirname, '..', 'docs', 'screenshots');
 const SERVER_ENTRY = path.join(__dirname, '..', 'packages', 'server', 'src', 'index.ts');
 const BUN_BIN = process.env.BUN_BIN || (fs.existsSync('/opt/homebrew/bin/bun') ? '/opt/homebrew/bin/bun' : 'bun');
 
+const finding1 = {
+  id: "f1",
+  severity: "HIGH",
+  file: "src/auth.js",
+  location: "src/auth.js:42",
+  line: 42,
+  dimensions: ["security"],
+  finding: "User input passed to SQL query without sanitization — SQL injection risk",
+  reasoning: "Line 42 builds a query string directly from req.body.username without parameterization",
+  evidence: "const query = 'SELECT * FROM users WHERE name=' + req.body.username"
+};
+
+const finding2 = {
+  id: "f2",
+  severity: "NOTE",
+  file: "src/utils.js",
+  location: "src/utils.js:15",
+  line: 15,
+  dimensions: ["testing"],
+  finding: "No unit tests for the new parseDate helper function",
+  reasoning: "parseDate is called from 3 places but has no test coverage"
+};
+
 const sampleData = {
   verdict: "Two issues found: one HIGH severity SQL injection risk and one NOTE about missing test coverage. The overall structure of the changes is clean.",
   branch: "feature/example",
@@ -23,26 +46,13 @@ const sampleData = {
   timestamp: new Date().toISOString(),
   resumeCommand: "/review-resume screenshot-session",
   summary: "Review complete. Address the SQL injection before merge.",
-  findings: [
-    {
-      id: "f1",
-      severity: "HIGH",
-      file: "src/auth.js",
-      location: "src/auth.js:42",
-      line: 42,
-      finding: "User input passed to SQL query without sanitization — SQL injection risk",
-      reasoning: "Line 42 builds a query string directly from req.body.username without parameterization",
-      evidence: "const query = 'SELECT * FROM users WHERE name=' + req.body.username"
-    },
-    {
-      id: "f2",
-      severity: "NOTE",
-      file: "src/utils.js",
-      location: "src/utils.js:15",
-      line: 15,
-      finding: "No unit tests for the new parseDate helper function",
-      reasoning: "parseDate is called from 3 places but has no test coverage"
-    }
+  findings: [finding1, finding2],
+  reviewerResults: [
+    { agent: "semantic-analyzer", status: "complete", findings: [] },
+    { agent: "security-scanner", status: "complete", findings: [finding1] },
+    { agent: "architecture-reviewer", status: "complete", findings: [] },
+    { agent: "test-coverage-analyzer", status: "complete", findings: [finding2] },
+    { agent: "senior-dev-reviewer", status: "complete", findings: [] }
   ],
   files: [
     {
@@ -114,6 +124,10 @@ const playwrightCaptureScript = function(url, outDir) {
     "  await page.addInitScript(() => { localStorage.clear(); });",
     "  await page.goto('" + url + "');",
     "  await page.waitForSelector('.finding', { timeout: 8000 });",
+    "  await page.waitForSelector('.dim--open', { timeout: 8000 }).catch(() => {});",
+    "  await page.waitForTimeout(400);",
+    "  await page.screenshot({ path: '" + outDir + "/results-view.png' });",
+    "  console.log('Screenshot 0: results-view.png');",
     "  await page.click('.finding');",
     "  await page.click('.finding .checkbox');",
     "  await page.waitForSelector('.diff-view table, .diff-view .diff-table', { timeout: 8000 }).catch(() => {});",
@@ -122,6 +136,9 @@ const playwrightCaptureScript = function(url, outDir) {
     "  await page.waitForTimeout(500);",
     "  await page.screenshot({ path: '" + outDir + "/review-ui.png' });",
     "  console.log('Screenshot 1: review-ui.png');",
+    "  await page.click('.finding button:has-text(\"Open diff\")');",
+    "  await page.waitForSelector('.annotation-toolstrip', { timeout: 8000 });",
+    "  await page.waitForSelector('.diff-view tr[data-line-right], .diff-view tr[data-line-left]', { timeout: 8000 });",
     "  await page.click('.annotation-toolstrip button:has-text(\"Pinpoint\")');",
     "  await page.click('.annotation-toolstrip button:has-text(\"Comment\")');",
     "  await page.click('.diff-view tr[data-line-right], .diff-view tr[data-line-left]');",
