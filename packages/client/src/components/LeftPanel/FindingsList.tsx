@@ -54,6 +54,9 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
                 <span className="finding__loc" title={f.file}>
                   <strong>{dir}/</strong>{fileLast}<span className="muted">:{f.line ?? ''}</span>
                 </span>
+                <span className={`finding__decision${markedForImplement ? ' finding__decision--implement' : action === 'ignore' ? ' finding__decision--dismiss' : ''}`}>
+                  {actionLabel(action)}
+                </span>
               </div>
               <div className="finding__title">{f.finding}</div>
               {selected && (
@@ -81,9 +84,6 @@ export default function FindingsList({ findings, selectedId, findingActions, onS
                 </div>
               )}
             </div>
-            <span className={`finding__decision${markedForImplement ? ' finding__decision--implement' : action === 'ignore' ? ' finding__decision--dismiss' : ''}`}>
-              {actionLabel(action)}
-            </span>
           </div>
         );
       })}

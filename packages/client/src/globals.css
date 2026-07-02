@@ -525,7 +525,7 @@ html, body { overflow-x: auto; }
 
 .finding {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 10px 14px 10px 12px;
@@ -637,7 +637,8 @@ html, body { overflow-x: auto; }
   color: var(--fg-strong);
 }
 .finding__decision {
-  align-self: start;
+  margin-left: auto;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
